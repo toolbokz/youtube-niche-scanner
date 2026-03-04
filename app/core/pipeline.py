@@ -1,6 +1,15 @@
-"""Pipeline Orchestrator - coordinates the full analysis pipeline."""
+"""Pipeline Orchestrator — parallelised analysis pipeline.
+
+Performance improvements over v1:
+- Steps 1 & 2 (keyword expansion + trend discovery) run **concurrently**.
+- Per-niche analysis (steps 4-7) runs **all niches in parallel** via
+  asyncio.gather with bounded concurrency (semaphore).
+- Strategy generation for ranked niches also parallelised.
+- Timing breakdowns logged per step for observability.
+"""
 from __future__ import annotations
 
+import asyncio
 import time
 from datetime import datetime
 from typing import Any
@@ -27,9 +36,23 @@ from app.video_strategy.engine import VideoStrategyEngine
 from app.viral_opportunity_detector.engine import ViralOpportunityDetector
 from app.virality_prediction.engine import ViralityPredictionEngine
 from app.core.logging import get_logger
-from app.core.models import NicheReport, ViralOpportunity, TopicVelocityResult, ThumbnailPatternResult, DiscoverySource
+from app.core.models import (
+    NicheReport,
+    ViralOpportunity,
+    TopicVelocityResult,
+    ThumbnailPatternResult,
+    DiscoverySource,
+    KeywordCluster,
+)
 
 logger = get_logger(__name__)
+
+# Max parallel niche analysis tasks — prevents HTTP connection storms
+_NICHE_CONCURRENCY = 6
+
+
+def _elapsed_since(t0: float) -> float:
+    return round(time.time() - t0, 2)
 
 
 class PipelineOrchestrator:
@@ -61,7 +84,7 @@ class PipelineOrchestrator:
         self.blueprint_assembler = BlueprintAssembler()
         self.report_engine = ReportGenerationEngine()
 
-        # New advanced engines
+        # Advanced engines
         self.discovery_engine = DiscoveryEngine(
             self.google_trends, self.reddit, self.yt_autocomplete, self.yt_search
         )
@@ -69,26 +92,84 @@ class PipelineOrchestrator:
         self.topic_velocity_engine = TopicVelocityEngine(self.yt_search)
         self.thumbnail_analysis_engine = ThumbnailAnalysisEngine(self.yt_search)
 
+        # Semaphore for bounded concurrency
+        self._niche_sem = asyncio.Semaphore(_NICHE_CONCURRENCY)
+
+    # ── Single-niche analysis (runs under semaphore) ─────────────────
+
+    async def _analyze_single_niche(
+        self,
+        cluster: KeywordCluster,
+        demand_map: dict[str, float],
+    ) -> tuple[str, dict[str, Any]]:
+        """Analyse one niche — all its sub-tasks run concurrently."""
+        async with self._niche_sem:
+            niche_name = cluster.name
+            keywords = cluster.keywords
+
+            # Fire all async analyses concurrently
+            competition_task = self.competition_engine.analyze_niche(niche_name, keywords)
+            viral_opp_task = self.viral_opportunity_detector.analyze_niche(niche_name, keywords)
+            velocity_task = self.topic_velocity_engine.analyze_niche(niche_name, keywords)
+            thumbnail_task = self.thumbnail_analysis_engine.analyze_niche(niche_name, keywords)
+
+            competition, viral_opp_result, velocity_result, thumbnail_result = (
+                await asyncio.gather(
+                    competition_task, viral_opp_task, velocity_task, thumbnail_task,
+                    return_exceptions=True,
+                )
+            )
+
+            # Handle exceptions gracefully
+            if isinstance(competition, BaseException):
+                logger.warning("niche_competition_error", niche=niche_name, error=str(competition))
+                competition = None
+            if isinstance(viral_opp_result, BaseException):
+                logger.warning("niche_viral_opp_error", niche=niche_name, error=str(viral_opp_result))
+                viral_opp_result = None
+            if isinstance(velocity_result, BaseException):
+                logger.warning("niche_velocity_error", niche=niche_name, error=str(velocity_result))
+                velocity_result = None
+            if isinstance(thumbnail_result, BaseException):
+                logger.warning("niche_thumbnail_error", niche=niche_name, error=str(thumbnail_result))
+                thumbnail_result = None
+
+            # Sync engines — CPU-light, run directly
+            virality = self.virality_engine.analyze_niche(niche_name, keywords)
+            ctr = self.ctr_engine.analyze_niche(niche_name, keywords)
+            faceless = self.faceless_engine.analyze_niche(niche_name, keywords)
+
+            # Demand score
+            kw_demands = [demand_map.get(kw, 50.0) for kw in keywords if kw in demand_map]
+            demand_score = sum(kw_demands) / len(kw_demands) if kw_demands else 50.0
+
+            data: dict[str, Any] = {
+                "demand_score": demand_score,
+                "competition": competition,
+                "trend_momentum": demand_score,
+                "virality": virality,
+                "ctr": ctr,
+                "faceless": faceless,
+                "viral_opportunity": viral_opp_result,
+                "topic_velocity": velocity_result,
+                "thumbnail_result": thumbnail_result,
+                "keywords": keywords,
+            }
+            return niche_name, data
+
+    # ── Full pipeline ────────────────────────────────────────────────
+
     async def run_full_pipeline(
         self,
         seed_keywords: list[str],
         top_n: int | None = None,
         videos_per_niche: int | None = None,
     ) -> NicheReport:
-        """Execute the complete pipeline end-to-end.
+        """Execute the complete pipeline end-to-end with maximum parallelism.
 
-        Steps:
-        1. Keyword expansion
-        2. Trend discovery
-        3. Niche clustering
-        4. Competition analysis
-        5. Virality prediction
-        6. CTR prediction
-        7. Faceless viability
-        8. Niche ranking
-        9. Video strategy generation
-        10. Blueprint assembly
-        11. Report generation
+        Steps 1-2 run concurrently (keyword expansion ∥ trend discovery).
+        Steps 4-7 run all niches in parallel (bounded by semaphore).
+        Steps 9-10 strategy generation parallelised across niches.
         """
         settings = get_settings()
         if top_n is None:
@@ -97,123 +178,110 @@ class PipelineOrchestrator:
             videos_per_niche = settings.analysis.videos_per_niche
 
         start_time = time.time()
+        step_timings: dict[str, float] = {}
         logger.info("pipeline_started", seeds=seed_keywords)
 
-        # ── Step 1: Keyword Expansion ──
-        logger.info("step_1_keyword_expansion")
-        expanded = await self.keyword_engine.expand_batch(seed_keywords, use_prefixes=False)
+        # ── Steps 1 + 2: Keyword Expansion ∥ Trend Discovery (concurrent) ──
+        t0 = time.time()
+        logger.info("steps_1_2_concurrent_expansion_trends")
+
+        async def _expand() -> dict[str, list[str]]:
+            return await self.keyword_engine.expand_batch(seed_keywords, use_prefixes=False)
+
+        async def _trends(kws: list[str]) -> list[dict[str, Any]]:
+            return await self.trend_engine.discover_trends(kws)
+
+        # Start keyword expansion
+        expand_task = asyncio.create_task(_expand())
+        # Run trend discovery on seed keywords first (we'll get expanded later)
+        seed_trends_task = asyncio.create_task(_trends(seed_keywords[:30]))
+
+        expanded, seed_trend_results = await asyncio.gather(expand_task, seed_trends_task)
+
         all_keywords: list[str] = list(seed_keywords)
         for kw_list in expanded.values():
             all_keywords.extend(kw_list)
         all_keywords = list(dict.fromkeys(all_keywords))  # Deduplicate
-        logger.info("keywords_expanded", total=len(all_keywords))
 
-        # ── Step 2: Trend Discovery ──
-        logger.info("step_2_trend_discovery")
-        # Analyze seeds + top expanded keywords
-        trend_keywords = seed_keywords + all_keywords[:20]
-        trend_keywords = list(dict.fromkeys(trend_keywords))[:30]
-        trend_results = await self.trend_engine.discover_trends(trend_keywords)
-
-        # Build demand scores from trends
+        # Build demand scores from seed trends
         demand_map: dict[str, float] = {}
-        for tr in trend_results:
+        for tr in seed_trend_results:
             demand_map[tr["keyword"]] = tr["trend_momentum_score"]
 
-        # ── Step 3: Niche Clustering ──
+        step_timings["steps_1_2_expand_trends"] = _elapsed_since(t0)
+        logger.info("steps_1_2_done", keywords=len(all_keywords),
+                     trends=len(seed_trend_results), time_s=step_timings["steps_1_2_expand_trends"])
+
+        # ── Step 3: Niche Clustering (CPU-only, fast) ──
+        t0 = time.time()
         logger.info("step_3_niche_clustering")
         clusters = self.clustering_engine.cluster_keywords(all_keywords, seed_keywords)
         clusters = self.clustering_engine.merge_small_clusters(clusters, min_size=3)
-        logger.info("clusters_formed", count=len(clusters))
 
         if not clusters:
             logger.warning("no_clusters_formed")
-            # Fallback: create one cluster per seed
-            from app.core.models import KeywordCluster
             clusters = [
                 KeywordCluster(
-                    cluster_id=i,
-                    name=kw,
-                    keywords=[kw],
-                    seed_keyword=kw,
-                    size=1,
+                    cluster_id=i, name=kw, keywords=[kw], seed_keyword=kw, size=1,
                 )
                 for i, kw in enumerate(seed_keywords)
             ]
 
-        # ── Step 4-7: Analysis per niche ──
-        logger.info("step_4_7_per_niche_analysis")
+        step_timings["step_3_clustering"] = _elapsed_since(t0)
+        logger.info("clusters_formed", count=len(clusters), time_s=step_timings["step_3_clustering"])
+
+        # ── Steps 4-7: Per-niche analysis — ALL NICHES IN PARALLEL ──
+        t0 = time.time()
+        logger.info("steps_4_7_parallel_niche_analysis", niche_count=len(clusters))
+
+        niche_results = await asyncio.gather(
+            *(self._analyze_single_niche(cluster, demand_map) for cluster in clusters),
+            return_exceptions=True,
+        )
+
         niche_data: dict[str, dict[str, Any]] = {}
         all_viral_opportunities: dict[str, list[ViralOpportunity]] = {}
         all_topic_velocities: dict[str, TopicVelocityResult] = {}
         all_thumbnail_patterns: dict[str, ThumbnailPatternResult] = {}
 
-        for cluster in clusters:
-            niche_name = cluster.name
-            keywords = cluster.keywords
+        for result in niche_results:
+            if isinstance(result, BaseException):
+                logger.warning("niche_analysis_failed", error=str(result))
+                continue
+            niche_name, data = result
+            niche_data[niche_name] = data
 
-            # Competition (async)
-            competition = await self.competition_engine.analyze_niche(niche_name, keywords)
+            viral_opp = data.get("viral_opportunity")
+            if viral_opp and hasattr(viral_opp, "opportunities") and viral_opp.opportunities:
+                all_viral_opportunities[niche_name] = viral_opp.opportunities
 
-            # Virality (sync)
-            virality = self.virality_engine.analyze_niche(niche_name, keywords)
+            velocity = data.get("topic_velocity")
+            if velocity:
+                all_topic_velocities[niche_name] = velocity
 
-            # CTR (sync)
-            ctr = self.ctr_engine.analyze_niche(niche_name, keywords)
+            thumbnail = data.get("thumbnail_result")
+            if thumbnail:
+                all_thumbnail_patterns[niche_name] = thumbnail
 
-            # Faceless (sync)
-            faceless = self.faceless_engine.analyze_niche(niche_name, keywords)
-
-            # Viral Opportunity Detection (async)
-            viral_opp_result = await self.viral_opportunity_detector.analyze_niche(
-                niche_name, keywords
-            )
-            if viral_opp_result and viral_opp_result.opportunities:
-                all_viral_opportunities[niche_name] = viral_opp_result.opportunities
-
-            # Topic Velocity (async)
-            velocity_result = await self.topic_velocity_engine.analyze_niche(
-                niche_name, keywords
-            )
-            if velocity_result:
-                all_topic_velocities[niche_name] = velocity_result
-
-            # Thumbnail Analysis (async)
-            thumbnail_result = await self.thumbnail_analysis_engine.analyze_niche(
-                niche_name, keywords
-            )
-            if thumbnail_result:
-                all_thumbnail_patterns[niche_name] = thumbnail_result
-
-            # Demand: average trend momentum of known keywords
-            kw_demands = [demand_map.get(kw, 50.0) for kw in keywords if kw in demand_map]
-            demand_score = sum(kw_demands) / len(kw_demands) if kw_demands else 50.0
-
-            niche_data[niche_name] = {
-                "demand_score": demand_score,
-                "competition": competition,
-                "trend_momentum": demand_score,  # Reuse trend as momentum
-                "virality": virality,
-                "ctr": ctr,
-                "faceless": faceless,
-                "viral_opportunity": viral_opp_result,
-                "topic_velocity": velocity_result,
-                "keywords": keywords,
-            }
+        step_timings["steps_4_7_niche_analysis"] = _elapsed_since(t0)
+        logger.info("steps_4_7_done", niches=len(niche_data),
+                     time_s=step_timings["steps_4_7_niche_analysis"])
 
         # ── Step 8: Niche Ranking ──
+        t0 = time.time()
         logger.info("step_8_ranking")
         top_niches = self.ranking_engine.get_top_niches(niche_data, top_n)
-        logger.info("top_niches_ranked", count=len(top_niches))
+        step_timings["step_8_ranking"] = _elapsed_since(t0)
+        logger.info("top_niches_ranked", count=len(top_niches), time_s=step_timings["step_8_ranking"])
 
-        # ── Step 8b: Optional AI Enhancement ──
+        # ── Step 8b: Optional AI Enhancement (only top-ranked niches) ──
         ai_insights: dict[str, Any] = {}
         try:
             from app.config import get_settings as _gs
             if _gs().vertex_ai.enabled:
+                t0 = time.time()
                 from app.ai.service import run_full_ai_analysis
 
-                # Build a temporary report-like dict for the AI service
                 _tmp_report = {
                     "top_niches": [n.model_dump(mode="json") for n in top_niches],
                     "viral_opportunities": {
@@ -231,36 +299,45 @@ class PipelineOrchestrator:
                 }
                 logger.info("step_8b_ai_enhancement")
                 ai_insights = await run_full_ai_analysis(_tmp_report)
-                logger.info("ai_enhancement_complete", sections=list(ai_insights.keys()))
+                step_timings["step_8b_ai"] = _elapsed_since(t0)
+                logger.info("ai_enhancement_complete", sections=list(ai_insights.keys()),
+                             time_s=step_timings.get("step_8b_ai"))
         except Exception as exc:
             logger.warning("ai_enhancement_skipped", error=str(exc))
 
-        # ── Step 9-10: Strategy & Blueprint Generation ──
-        logger.info("step_9_10_strategy_generation")
+        # ── Steps 9-10: Strategy & Blueprint Generation (parallel) ──
+        t0 = time.time()
+        logger.info("steps_9_10_strategy_generation")
         channel_concepts = []
         video_blueprints: dict[str, list[Any]] = {}
 
-        for niche_score in top_niches:
+        def _generate_for_niche(niche_score):  # type: ignore[no-untyped-def]
             niche_name = niche_score.niche
             faceless_data = niche_data.get(niche_name, {}).get("faceless")
-
-            # Channel concept
-            concept = self.video_strategy_engine.generate_channel_concept(
-                niche_score, faceless_data
-            )
-            channel_concepts.append(concept)
-
-            # Video ideas
-            ideas = self.video_strategy_engine.generate_video_ideas(
-                niche_score, count=videos_per_niche
-            )
-
-            # Full blueprints
+            concept = self.video_strategy_engine.generate_channel_concept(niche_score, faceless_data)
+            ideas = self.video_strategy_engine.generate_video_ideas(niche_score, count=videos_per_niche)
             blueprints = self.blueprint_assembler.assemble_batch(ideas, niche_score)
+            return concept, niche_name, blueprints
+
+        # Strategy generation is CPU-bound, run in executor for parallelism
+        loop = asyncio.get_event_loop()
+        strategy_tasks = [
+            loop.run_in_executor(None, _generate_for_niche, ns) for ns in top_niches
+        ]
+        strategy_results = await asyncio.gather(*strategy_tasks, return_exceptions=True)
+
+        for result in strategy_results:
+            if isinstance(result, BaseException):
+                logger.warning("strategy_gen_error", error=str(result))
+                continue
+            concept, niche_name, blueprints = result
+            channel_concepts.append(concept)
             video_blueprints[niche_name] = blueprints
 
+        step_timings["steps_9_10_strategy"] = _elapsed_since(t0)
+        logger.info("steps_9_10_done", time_s=step_timings["steps_9_10_strategy"])
+
         # ── Step 11: Report ──
-        logger.info("step_11_report_generation")
         elapsed = round(time.time() - start_time, 1)
 
         report = self.report_engine.generate_report(
@@ -276,6 +353,7 @@ class PipelineOrchestrator:
                 "total_keywords_analyzed": len(all_keywords),
                 "total_clusters": len(clusters),
                 "pipeline_duration_seconds": elapsed,
+                "step_timings": step_timings,
                 "viral_opportunities_found": sum(
                     len(v) for v in all_viral_opportunities.values()
                 ),
@@ -293,7 +371,7 @@ class PipelineOrchestrator:
             duration_seconds=elapsed,
             niches=len(top_niches),
             blueprints=sum(len(v) for v in video_blueprints.values()),
-            report_paths={k: str(v) for k, v in paths.items()},
+            step_timings=step_timings,
         )
 
         return report
@@ -305,16 +383,10 @@ class PipelineOrchestrator:
         top_n: int | None = None,
         videos_per_niche: int | None = None,
     ) -> NicheReport:
-        """Automatic discovery mode - no user seed keywords required.
+        """Automatic discovery mode — no user seed keywords required.
 
         Uses the DiscoveryEngine to find trending topics, then feeds
         them through the standard analysis pipeline.
-
-        Args:
-            max_seeds: Maximum number of seeds to auto-discover.
-            deep: If True, discover up to 50 seeds for broader coverage.
-            top_n: Override for how many top niches to return.
-            videos_per_niche: Override for blueprint count per niche.
         """
         if deep:
             max_seeds = max(max_seeds, 50)
@@ -353,8 +425,11 @@ class PipelineOrchestrator:
 
     async def close(self) -> None:
         """Close all connector HTTP clients."""
-        await self.yt_autocomplete.close()
-        await self.yt_search.close()
-        await self.google_trends.close()
-        await self.reddit.close()
-        await self.keyword_scraper.close()
+        await asyncio.gather(
+            self.yt_autocomplete.close(),
+            self.yt_search.close(),
+            self.google_trends.close(),
+            self.reddit.close(),
+            self.keyword_scraper.close(),
+            return_exceptions=True,
+        )

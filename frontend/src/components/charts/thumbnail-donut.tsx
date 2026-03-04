@@ -1,5 +1,6 @@
 'use client';
 
+import { memo } from 'react';
 import {
     PieChart,
     Pie,
@@ -26,7 +27,7 @@ interface ThumbnailDonutProps {
     data: { name: string; value: number }[];
 }
 
-export function ThumbnailDonut({ title, data }: ThumbnailDonutProps) {
+export const ThumbnailDonut = memo(function ThumbnailDonut({ title, data }: ThumbnailDonutProps) {
     return (
         <Card>
             <CardHeader className="pb-2">
@@ -66,4 +67,4 @@ export function ThumbnailDonut({ title, data }: ThumbnailDonutProps) {
             </CardContent>
         </Card>
     );
-}
+});

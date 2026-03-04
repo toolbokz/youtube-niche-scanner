@@ -121,12 +121,14 @@ class GoogleTrendsConnector(BaseConnector):
     async def get_batch_trends(
         self, keywords: list[str], timeframe: str = "today 3-m"
     ) -> list[TrendData]:
-        """Get trends for multiple keywords with rate limiting."""
-        results: list[TrendData] = []
-        for keyword in keywords:
-            result = await self.get_trend(keyword, timeframe)
-            results.append(result)
-        return results
+        """Get trends for multiple keywords concurrently."""
+        import asyncio
+        tasks = [self.get_trend(kw, timeframe) for kw in keywords]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        return [
+            r for r in results
+            if not isinstance(r, BaseException)
+        ]
 
     async def health_check(self) -> bool:
         try:

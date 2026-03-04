@@ -20,15 +20,21 @@ class CompetitionAnalysisEngine:
         self.sample_size = sample_size
 
     async def analyze_niche(self, niche_name: str, keywords: list[str]) -> CompetitionMetrics:
-        """Analyze competition for a niche using its keywords."""
+        """Analyze competition for a niche using its keywords concurrently."""
+        import asyncio
+        sample_keywords = keywords[:5]
+
+        # Search all keywords in parallel
+        tasks = [
+            self.yt_search.search(keyword, max_results=self.sample_size)
+            for keyword in sample_keywords
+        ]
+        results_raw = await asyncio.gather(*tasks, return_exceptions=True)
+
         all_results: list[SearchResult] = []
-
-        # Sample keywords to search (avoid excessive API calls)
-        sample_keywords = keywords[:5]  # Use top 5 keywords
-
-        for keyword in sample_keywords:
-            results = await self.yt_search.search(keyword, max_results=self.sample_size)
-            all_results.extend(results)
+        for r in results_raw:
+            if not isinstance(r, BaseException):
+                all_results.extend(r)
 
         if not all_results:
             return CompetitionMetrics(niche=niche_name, competition_score=50.0)

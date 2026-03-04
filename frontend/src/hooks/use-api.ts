@@ -11,6 +11,7 @@ import {
     getAINicheInsights,
     getAIVideoStrategy,
     getAITrendForecast,
+    getDashboardData,
 } from '@/services/api';
 import type { AnalyzeRequest, DiscoverRequest } from '@/types';
 import { useAppStore } from '@/store/app-store';
@@ -21,6 +22,7 @@ export function useHealth() {
     return useQuery({
         queryKey: ['health'],
         queryFn: getHealth,
+        staleTime: 30_000,
         refetchInterval: 30_000,
     });
 }
@@ -49,6 +51,7 @@ export function useReports(search = '') {
     return useQuery({
         queryKey: ['reports', search],
         queryFn: () => getReports(search),
+        staleTime: 10 * 60 * 1000, // 10 min — reports don't change often
     });
 }
 
@@ -57,6 +60,7 @@ export function useReport(filename: string) {
         queryKey: ['report', filename],
         queryFn: () => getReport(filename),
         enabled: !!filename,
+        staleTime: 30 * 60 * 1000, // 30 min — individual reports are immutable
     });
 }
 
@@ -66,6 +70,7 @@ export function useCacheStats() {
     return useQuery({
         queryKey: ['cache-stats'],
         queryFn: getCacheStats,
+        staleTime: 60_000, // 1 min
     });
 }
 
@@ -76,6 +81,8 @@ export function useAINicheInsights(topN = 5) {
         queryKey: ['ai-niche-insights', topN],
         queryFn: () => getAINicheInsights(topN),
         enabled: false, // manual trigger
+        staleTime: 15 * 60 * 1000, // 15 min — AI results are expensive
+        gcTime: 60 * 60 * 1000,     // 1 hour
     });
 }
 
@@ -84,6 +91,8 @@ export function useAIVideoStrategy(niche: string) {
         queryKey: ['ai-video-strategy', niche],
         queryFn: () => getAIVideoStrategy(niche),
         enabled: false,
+        staleTime: 15 * 60 * 1000,
+        gcTime: 60 * 60 * 1000,
     });
 }
 
@@ -92,5 +101,17 @@ export function useAITrendForecast() {
         queryKey: ['ai-trend-forecast'],
         queryFn: getAITrendForecast,
         enabled: false,
+        staleTime: 15 * 60 * 1000,
+        gcTime: 60 * 60 * 1000,
+    });
+}
+
+// ── Dashboard batch ───────────────────────────────────────────────────────────
+
+export function useDashboardData() {
+    return useQuery({
+        queryKey: ['dashboard-data'],
+        queryFn: getDashboardData,
+        staleTime: 2 * 60 * 1000, // 2 min
     });
 }

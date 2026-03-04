@@ -89,3 +89,14 @@ export async function getAIVideoStrategy(niche: string, count = 15) {
 export async function getAITrendForecast() {
     return request<{ status: string; trend_forecast: Record<string, unknown> }>('/ai/trend-forecast');
 }
+
+// ── Dashboard batch ───────────────────────────────────────────────────────────
+
+export async function getDashboardData() {
+    return request<{
+        health: { status: string; version: string };
+        cache: Record<string, unknown>;
+        latest_report: Record<string, unknown> | null;
+        recent_reports: Array<Record<string, unknown>>;
+    }>('/dashboard-data');
+}

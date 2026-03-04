@@ -100,12 +100,14 @@ class RedditConnector(BaseConnector):
         return posts
 
     async def get_batch_signals(self, keywords: list[str]) -> list[RedditSignal]:
-        """Get Reddit signals for multiple keywords."""
-        results: list[RedditSignal] = []
-        for keyword in keywords:
-            signal = await self.get_signal(keyword)
-            results.append(signal)
-        return results
+        """Get Reddit signals for multiple keywords concurrently."""
+        import asyncio
+        tasks = [self.get_signal(kw) for kw in keywords]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        return [
+            r for r in results
+            if not isinstance(r, BaseException)
+        ]
 
     async def health_check(self) -> bool:
         try:

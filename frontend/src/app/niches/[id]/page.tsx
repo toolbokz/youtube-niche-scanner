@@ -1,12 +1,21 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import { useParams } from 'next/navigation';
 import { useAppStore } from '@/store/app-store';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { NicheRadar } from '@/components/charts/niche-radar';
-import { VelocityChart } from '@/components/charts/velocity-chart';
+
+const NicheRadar = dynamic(
+    () => import('@/components/charts/niche-radar').then((m) => ({ default: m.NicheRadar })),
+    { ssr: false, loading: () => <div className="h-[300px] animate-pulse rounded-lg bg-muted" /> }
+);
+const VelocityChart = dynamic(
+    () => import('@/components/charts/velocity-chart').then((m) => ({ default: m.VelocityChart })),
+    { ssr: false, loading: () => <div className="h-[200px] animate-pulse rounded-lg bg-muted" /> }
+);
+
 import { EmptyState } from '@/components/ui/spinner';
 import { ArrowLeft, Users, Eye, Calendar, Zap, TrendingUp } from 'lucide-react';
 import Link from 'next/link';

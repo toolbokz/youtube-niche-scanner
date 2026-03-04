@@ -1,6 +1,7 @@
 """AI Service Layer — orchestrates Gemini calls with prompt templates and DB caching."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import time
@@ -278,12 +279,11 @@ async def get_quick_niche_insight(niche_data: dict[str, Any]) -> dict[str, Any]:
 
 
 async def run_full_ai_analysis(report_data: dict[str, Any]) -> dict[str, Any]:
-    """Run all AI analyses on a completed report.
+    """Run all AI analyses on a completed report — **parallelized**.
 
-    This is the main entry point used by the pipeline and CLI.
-    Only analyses top-ranked niches to control cost.
-
-    Returns a dict keyed by analysis type containing all AI results.
+    Independent AI calls (niche analysis, viral interpretation, video strategy,
+    thumbnail strategy, trend forecast) are fired concurrently via asyncio.gather
+    to reduce wall-clock time from 5× serial to ~1× (bounded by the slowest call).
     """
     results: dict[str, Any] = {}
 
@@ -295,30 +295,32 @@ async def run_full_ai_analysis(report_data: dict[str, Any]) -> dict[str, Any]:
     if not client.available:
         return {"error": "Vertex AI not configured — set GOOGLE_APPLICATION_CREDENTIALS and GOOGLE_CLOUD_PROJECT"}
 
-    # 1. Deep niche analysis (top 5 only → cost control)
     top5 = top_niches[:5]
     logger.info("ai_full_analysis_start", niches=len(top5))
-    results["niche_analysis"] = await analyze_niches(
-        [n if isinstance(n, dict) else n.model_dump(mode="json") for n in top5]
-    )
 
-    # 2. Viral opportunity interpretation (per niche, top 3)
+    # ── Build independent tasks ────────────────────────────────────────
+    tasks: list[tuple[str, Any]] = []  # (result_key, coroutine)
+
+    # 1. Deep niche analysis
+    niche_dicts = [n if isinstance(n, dict) else n.model_dump(mode="json") for n in top5]
+    tasks.append(("niche_analysis", analyze_niches(niche_dicts)))
+
+    # 2. Viral opportunity interpretations (per niche, top 3 — fire all at once)
     viral_opps = report_data.get("viral_opportunities", {})
-    results["viral_interpretations"] = {}
+    viral_niche_names: list[str] = []
     for niche_name in list(viral_opps.keys())[:3]:
         opps = viral_opps[niche_name]
         opp_dicts = [o if isinstance(o, dict) else o.model_dump(mode="json") for o in opps]
-        results["viral_interpretations"][niche_name] = await interpret_viral_opportunities(
-            niche_name, opp_dicts
-        )
+        viral_niche_names.append(niche_name)
+        tasks.append((f"_viral_{niche_name}", interpret_viral_opportunities(niche_name, opp_dicts)))
 
     # 3. Video strategy for top niche
     if top5:
         best = top5[0] if isinstance(top5[0], dict) else top5[0].model_dump(mode="json")
-        results["video_strategy"] = await generate_video_strategy(
+        tasks.append(("video_strategy", generate_video_strategy(
             best.get("niche", ""),
             best.get("keywords", []),
-        )
+        )))
 
     # 4. Thumbnail AI for top niche
     thumb_patterns = report_data.get("thumbnail_patterns", {})
@@ -326,7 +328,7 @@ async def run_full_ai_analysis(report_data: dict[str, Any]) -> dict[str, Any]:
         first_niche = next(iter(thumb_patterns))
         tp = thumb_patterns[first_niche]
         tp_dict = tp if isinstance(tp, dict) else tp.model_dump(mode="json")
-        results["thumbnail_strategy"] = await analyze_thumbnail_patterns(first_niche, tp_dict)
+        tasks.append(("thumbnail_strategy", analyze_thumbnail_patterns(first_niche, tp_dict)))
 
     # 5. Trend forecast
     velocities = report_data.get("topic_velocities", {})
@@ -335,10 +337,28 @@ async def run_full_ai_analysis(report_data: dict[str, Any]) -> dict[str, Any]:
             k: (v if isinstance(v, dict) else v.model_dump(mode="json"))
             for k, v in velocities.items()
         }
-        niche_dicts = [
-            n if isinstance(n, dict) else n.model_dump(mode="json") for n in top5
-        ]
-        results["trend_forecast"] = await forecast_trends(vel_dicts, niche_dicts)
+        tasks.append(("trend_forecast", forecast_trends(vel_dicts, niche_dicts)))
 
-    logger.info("ai_full_analysis_complete", sections=list(results.keys()))
+    # ── Fire all tasks concurrently ────────────────────────────────────
+    keys = [t[0] for t in tasks]
+    coros = [t[1] for t in tasks]
+    t0 = time.time()
+    outcomes = await asyncio.gather(*coros, return_exceptions=True)
+    elapsed = round(time.time() - t0, 2)
+
+    # ── Collect results ────────────────────────────────────────────────
+    viral_interps: dict[str, Any] = {}
+    for key, outcome in zip(keys, outcomes):
+        if isinstance(outcome, Exception):
+            logger.warning("ai_task_failed", key=key, error=str(outcome))
+            continue
+        if key.startswith("_viral_"):
+            viral_interps[key.removeprefix("_viral_")] = outcome
+        else:
+            results[key] = outcome
+
+    if viral_interps:
+        results["viral_interpretations"] = viral_interps
+
+    logger.info("ai_full_analysis_complete", sections=list(results.keys()), total_time_s=elapsed)
     return results

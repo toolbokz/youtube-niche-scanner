@@ -75,13 +75,18 @@ class TrendDiscoveryEngine:
         return result
 
     async def discover_trends(self, seed_keywords: list[str]) -> list[dict[str, Any]]:
-        """Analyze multiple keywords and return sorted by momentum."""
-        results: list[dict[str, Any]] = []
-        for keyword in seed_keywords:
-            analysis = await self.analyze_keyword(keyword)
-            results.append(analysis)
+        """Analyze multiple keywords concurrently and return sorted by momentum."""
+        import asyncio
+        tasks = [self.analyze_keyword(kw) for kw in seed_keywords]
+        results_raw = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Sort by trend momentum score descending
+        results: list[dict[str, Any]] = []
+        for r in results_raw:
+            if isinstance(r, BaseException):
+                logger.warning("trend_analysis_error", error=str(r))
+            else:
+                results.append(r)
+
         results.sort(key=lambda x: x["trend_momentum_score"], reverse=True)
         return results
 

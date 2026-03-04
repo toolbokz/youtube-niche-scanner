@@ -60,18 +60,19 @@ class KeywordScraperConnector(BaseConnector):
             return []
 
     async def expand_all_sources(self, query: str) -> list[str]:
-        """Get suggestions from all available sources."""
+        """Get suggestions from all available sources concurrently."""
+        import asyncio
+        google_task = self.google_autocomplete(query)
+        bing_task = self.bing_autocomplete(query)
+        google, bing = await asyncio.gather(google_task, bing_task, return_exceptions=True)
+
         all_suggestions: set[str] = set()
+        if not isinstance(google, BaseException):
+            all_suggestions.update(google)
+        if not isinstance(bing, BaseException):
+            all_suggestions.update(bing)
 
-        google = await self.google_autocomplete(query)
-        all_suggestions.update(google)
-
-        bing = await self.bing_autocomplete(query)
-        all_suggestions.update(bing)
-
-        # Remove the original query
         all_suggestions.discard(query.lower())
-
         return sorted(all_suggestions)
 
     async def health_check(self) -> bool:

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import dynamic from 'next/dynamic';
 import { useAppStore } from '@/store/app-store';
 import { useAnalyze, useDiscover } from '@/hooks/use-api';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
@@ -8,7 +9,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Spinner, EmptyState } from '@/components/ui/spinner';
-import { ScoreDistributionChart } from '@/components/charts/score-chart';
+
+const ScoreDistributionChart = dynamic(
+    () => import('@/components/charts/score-chart').then((m) => ({ default: m.ScoreDistributionChart })),
+    { ssr: false, loading: () => <div className="h-[300px] animate-pulse rounded-lg bg-muted" /> }
+);
 import {
     Compass,
     Search,

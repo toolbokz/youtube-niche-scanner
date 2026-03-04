@@ -83,24 +83,22 @@ class DiscoveryEngine:
 
         categories = _DISCOVERY_CATEGORIES if deep else _DISCOVERY_CATEGORIES[:10]
 
-        # Gather signals from all sources concurrently
+        # ── Run ALL four sources concurrently ──
+        gt_task = self._discover_from_google_trends(categories)
+        ac_task = self._discover_from_autocomplete(categories)
+        reddit_task = self._discover_from_reddit(categories)
+        yt_task = self._discover_from_youtube_search(categories[:8])
+
+        results = await asyncio.gather(
+            gt_task, ac_task, reddit_task, yt_task, return_exceptions=True,
+        )
+
         sources: list[DiscoverySource] = []
-
-        # 1. Google Trends rising queries
-        gt_sources = await self._discover_from_google_trends(categories)
-        sources.extend(gt_sources)
-
-        # 2. YouTube autocomplete expansion
-        ac_sources = await self._discover_from_autocomplete(categories)
-        sources.extend(ac_sources)
-
-        # 3. Reddit rising topics
-        reddit_sources = await self._discover_from_reddit(categories)
-        sources.extend(reddit_sources)
-
-        # 4. YouTube search (trending content titles)
-        yt_sources = await self._discover_from_youtube_search(categories[:8])
-        sources.extend(yt_sources)
+        for r in results:
+            if isinstance(r, BaseException):
+                logger.warning("discovery_source_error", error=str(r))
+            else:
+                sources.extend(r)
 
         # Deduplicate and rank by score
         seen: set[str] = set()

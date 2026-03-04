@@ -1,9 +1,9 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import { useAppStore } from '@/store/app-store';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ScoreDistributionChart } from '@/components/charts/score-chart';
 import { EmptyState } from '@/components/ui/spinner';
 import {
     TrendingUp,
@@ -17,6 +17,12 @@ import {
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { formatScore } from '@/lib/utils';
+
+// Lazy-load Recharts bundles — they're ~200KB and only needed after data loads
+const ScoreDistributionChart = dynamic(
+    () => import('@/components/charts/score-chart').then((m) => ({ default: m.ScoreDistributionChart })),
+    { ssr: false, loading: () => <div className="h-[300px] animate-pulse rounded-lg bg-muted" /> }
+);
 
 function StatCard({
     title,

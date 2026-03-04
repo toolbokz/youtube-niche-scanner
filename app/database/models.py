@@ -71,6 +71,8 @@ class NicheRecord(Base):
 
     __table_args__ = (
         Index("idx_niche_score", "overall_score"),
+        Index("idx_niche_name_score", "name", "overall_score"),
+        Index("idx_niche_updated", "updated_at"),
     )
 
 
@@ -93,13 +95,17 @@ class SearchResultRecord(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     query = Column(String(500), nullable=False, index=True)
     title = Column(String(500), default="")
-    channel_name = Column(String(300), default="")
+    channel_name = Column(String(300), default="", index=True)
     channel_subscribers = Column(Integer, nullable=True)
     view_count = Column(Integer, nullable=True)
     published_at = Column(DateTime, nullable=True)
-    video_id = Column(String(20), default="")
+    video_id = Column(String(20), default="", index=True)
     duration_seconds = Column(Integer, nullable=True)
     collected_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_search_query_collected", "query", "collected_at"),
+    )
 
 
 class TrendRecord(Base):
@@ -114,19 +120,28 @@ class TrendRecord(Base):
     related_queries = Column(JSON, default=list)
     collected_at = Column(DateTime, default=datetime.utcnow)
 
+    __table_args__ = (
+        Index("idx_trend_keyword_collected", "keyword", "collected_at"),
+        Index("idx_trend_momentum", "momentum_score"),
+    )
+
 
 class AnalysisRun(Base):
     __tablename__ = "analysis_runs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     seed_keywords = Column(JSON, default=list)
-    status = Column(String(50), default="pending")
+    status = Column(String(50), default="pending", index=True)
     total_keywords = Column(Integer, default=0)
     total_niches = Column(Integer, default=0)
     started_at = Column(DateTime, default=datetime.utcnow)
     completed_at = Column(DateTime, nullable=True)
     report_path = Column(String(500), nullable=True)
     run_metadata = Column("metadata", JSON, default=dict)
+
+    __table_args__ = (
+        Index("idx_run_status_started", "status", "started_at"),
+    )
 
 
 class AIInsightRecord(Base):
@@ -142,6 +157,7 @@ class AIInsightRecord(Base):
 
     __table_args__ = (
         Index("idx_ai_cache_lookup", "cache_key", "created_at"),
+        Index("idx_ai_type_niche", "analysis_type", "niche"),
     )
 
 
@@ -167,9 +183,41 @@ async def init_db(url: str | None = None) -> None:
     if url is None:
         url = get_settings().database.url
 
+    settings = get_settings()
     async_url = _get_async_url(url)
-    _engine = create_async_engine(async_url, echo=get_settings().database.echo)
-    _session_factory = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
+
+    # Optimised engine kwargs for each backend
+    engine_kwargs: dict = {"echo": settings.database.echo}
+
+    if "sqlite" in async_url:
+        # SQLite: use WAL mode for concurrent reads, larger cache
+        engine_kwargs["connect_args"] = {"check_same_thread": False}
+
+        def _sqlite_pragma(dbapi_conn, connection_record):  # type: ignore[no-untyped-def]
+            cursor = dbapi_conn.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA cache_size=-64000")  # 64 MB
+            cursor.execute("PRAGMA temp_store=MEMORY")
+            cursor.execute("PRAGMA mmap_size=268435456")  # 256 MB
+            cursor.close()
+
+        from sqlalchemy import event
+        _engine = create_async_engine(async_url, **engine_kwargs)
+        event.listen(_engine.sync_engine, "connect", _sqlite_pragma)
+    else:
+        # PostgreSQL: connection pool tuning
+        engine_kwargs.update({
+            "pool_size": settings.database.pool_size,
+            "max_overflow": settings.database.pool_size * 2,
+            "pool_recycle": 1800,
+            "pool_pre_ping": True,
+        })
+        _engine = create_async_engine(async_url, **engine_kwargs)
+
+    _session_factory = async_sessionmaker(
+        _engine, class_=AsyncSession, expire_on_commit=False,
+    )
 
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

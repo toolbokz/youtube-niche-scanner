@@ -1,5 +1,6 @@
 'use client';
 
+import { memo } from 'react';
 import {
     AreaChart,
     Area,
@@ -18,7 +19,7 @@ interface VelocityChartProps {
     title?: string;
 }
 
-export function VelocityChart({ data, title }: VelocityChartProps) {
+export const VelocityChart = memo(function VelocityChart({ data, title }: VelocityChartProps) {
     const chartData = (data.weekly_volumes || []).map((wv) => ({
         week: wv.week,
         volume: wv.volume,
@@ -74,4 +75,4 @@ export function VelocityChart({ data, title }: VelocityChartProps) {
             </CardContent>
         </Card>
     );
-}
+});

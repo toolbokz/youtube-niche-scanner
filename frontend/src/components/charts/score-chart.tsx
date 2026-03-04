@@ -1,5 +1,6 @@
 'use client';
 
+import { memo } from 'react';
 import {
     BarChart,
     Bar,
@@ -31,7 +32,7 @@ interface ScoreChartProps {
     maxItems?: number;
 }
 
-export function ScoreDistributionChart({
+export const ScoreDistributionChart = memo(function ScoreDistributionChart({
     niches,
     title = 'Opportunity Score Distribution',
     dataKey = 'overall_score',
@@ -77,4 +78,4 @@ export function ScoreDistributionChart({
             </CardContent>
         </Card>
     );
-}
+});

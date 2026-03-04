@@ -1,5 +1,6 @@
 'use client';
 
+import { memo } from 'react';
 import {
     RadarChart,
     PolarGrid,
@@ -16,7 +17,7 @@ interface NicheRadarProps {
     niche: NicheScore;
 }
 
-export function NicheRadar({ niche }: NicheRadarProps) {
+export const NicheRadar = memo(function NicheRadar({ niche }: NicheRadarProps) {
     const data = [
         { metric: 'Demand', value: niche.demand_score },
         { metric: 'Low Competition', value: niche.competition_score },
@@ -64,4 +65,4 @@ export function NicheRadar({ niche }: NicheRadarProps) {
             </CardContent>
         </Card>
     );
-}
+});

@@ -1,9 +1,15 @@
 'use client';
 
+import dynamic from 'next/dynamic';
 import { useAppStore } from '@/store/app-store';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ThumbnailDonut } from '@/components/charts/thumbnail-donut';
+
+const ThumbnailDonut = dynamic(
+    () => import('@/components/charts/thumbnail-donut').then((m) => ({ default: m.ThumbnailDonut })),
+    { ssr: false, loading: () => <div className="h-[250px] animate-pulse rounded-lg bg-muted" /> }
+);
+
 import { EmptyState } from '@/components/ui/spinner';
 import { Image, Palette, Type, Contrast, Smile, Eye } from 'lucide-react';
 import { formatScore } from '@/lib/utils';

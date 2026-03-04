@@ -2,14 +2,16 @@
 from __future__ import annotations
 
 import json as _json
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncGenerator
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.responses import Response
 from pydantic import BaseModel, Field
 
@@ -19,6 +21,21 @@ from app.core.pipeline import PipelineOrchestrator
 from app.database import init_db, close_db
 
 logger = get_logger(__name__)
+
+# ── Try orjson for fast serialisation ──────────────────────────────────────────
+try:
+    import orjson
+
+    class ORJSONResponse(JSONResponse):
+        """JSONResponse using orjson for ~5× faster serialisation."""
+        media_type = "application/json"
+
+        def render(self, content: Any) -> bytes:
+            return orjson.dumps(content, option=orjson.OPT_NON_STR_KEYS | orjson.OPT_SERIALIZE_NUMPY)
+
+    _DefaultJSON = ORJSONResponse
+except ImportError:
+    _DefaultJSON = JSONResponse  # type: ignore[assignment,misc]
 
 
 # ── Request/Response Models ────────────────────────────────────────────────────
@@ -52,6 +69,18 @@ class DiscoverRequest(BaseModel):
     max_seeds: int = Field(default=20, ge=5, le=100, description="Max auto-discovered seeds")
     top_n: int = Field(default=20, ge=1, le=50, description="Number of top niches to return")
     videos_per_niche: int = Field(default=10, ge=1, le=30, description="Videos per niche")
+
+
+class AsyncAnalyzeRequest(BaseModel):
+    """Fire-and-forget pipeline request — returns a task_id immediately."""
+    seed_keywords: list[str] = Field(..., min_length=1)
+    top_n: int = Field(default=10, ge=1, le=50)
+    videos_per_niche: int = Field(default=10, ge=1, le=30)
+
+
+# ── Background task tracker ────────────────────────────────────────────────────
+
+_bg_tasks: dict[str, dict[str, Any]] = {}  # task_id → {status, result, ...}
 
 
 # ── Application Lifecycle ──────────────────────────────────────────────────────
@@ -95,6 +124,27 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class TimingMiddleware(BaseHTTPMiddleware):
+    """Inject Server-Timing header and log request latency."""
+
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> Response:
+        t0 = time.perf_counter()
+        response = await call_next(request)
+        elapsed_ms = round((time.perf_counter() - t0) * 1000, 1)
+        response.headers["Server-Timing"] = f"total;dur={elapsed_ms}"
+        response.headers["X-Response-Time"] = f"{elapsed_ms}ms"
+        if elapsed_ms > 500:
+            logger.warning(
+                "slow_request",
+                path=request.url.path,
+                method=request.method,
+                duration_ms=elapsed_ms,
+            )
+        return response
+
+
 # ── FastAPI App ────────────────────────────────────────────────────────────────
 
 def create_app() -> FastAPI:
@@ -106,9 +156,13 @@ def create_app() -> FastAPI:
         version=settings.app.version,
         description="YouTube Niche Discovery & Faceless Video Strategy Platform",
         lifespan=lifespan,
+        default_response_class=_DefaultJSON,
         docs_url="/docs" if settings.app.debug else None,
         redoc_url="/redoc" if settings.app.debug else None,
     )
+
+    # GZip — compress responses > 500 bytes (huge win for large JSON payloads)
+    app.add_middleware(GZipMiddleware, minimum_size=500)
 
     # CORS — allow frontend dev server and production origins
     cors_origins = settings.api.cors_origins
@@ -124,6 +178,9 @@ def create_app() -> FastAPI:
 
     # Security headers
     app.add_middleware(SecurityHeadersMiddleware)
+
+    # Request timing / observability
+    app.add_middleware(TimingMiddleware)
 
     # ── Routes ──
 
@@ -392,6 +449,109 @@ def create_app() -> FastAPI:
             media_type="application/json",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
+
+    # ── Background / async pipeline ───────────────────────────────────
+
+    @app.post("/analyze/async")
+    async def analyze_async(
+        request: AsyncAnalyzeRequest,
+        background_tasks: BackgroundTasks,
+    ) -> dict[str, Any]:
+        """Fire-and-forget pipeline — returns task_id immediately.
+
+        Poll GET /tasks/{task_id} for status and results.
+        """
+        import uuid
+
+        if _pipeline is None:
+            raise HTTPException(status_code=503, detail="Pipeline not initialized")
+
+        task_id = uuid.uuid4().hex[:12]
+        _bg_tasks[task_id] = {"status": "running", "started": time.time()}
+
+        async def _run() -> None:
+            try:
+                report = await _pipeline.run_full_pipeline(
+                    seed_keywords=request.seed_keywords,
+                    top_n=request.top_n,
+                    videos_per_niche=request.videos_per_niche,
+                )
+                _bg_tasks[task_id] = {
+                    "status": "completed",
+                    "started": _bg_tasks[task_id]["started"],
+                    "finished": time.time(),
+                    "result": {
+                        "seed_keywords": report.seed_keywords,
+                        "niche_count": len(report.top_niches),
+                        "metadata": report.metadata,
+                    },
+                }
+            except Exception as exc:
+                _bg_tasks[task_id] = {
+                    "status": "failed",
+                    "started": _bg_tasks[task_id]["started"],
+                    "finished": time.time(),
+                    "error": str(exc),
+                }
+
+        background_tasks.add_task(_run)
+        return {"task_id": task_id, "status": "accepted"}
+
+    @app.get("/tasks/{task_id}")
+    async def get_task_status(task_id: str) -> dict[str, Any]:
+        """Poll background pipeline task status."""
+        if task_id not in _bg_tasks:
+            raise HTTPException(status_code=404, detail="Task not found")
+        return {"task_id": task_id, **_bg_tasks[task_id]}
+
+    # ── Dashboard batch endpoint ──────────────────────────────────────
+
+    @app.get("/dashboard-data")
+    async def dashboard_data() -> dict[str, Any]:
+        """Single aggregated endpoint for the frontend dashboard.
+
+        Returns the latest report summary, cache stats, and health
+        in one round-trip instead of 3+ separate calls.
+        """
+        from app.core.cache import get_cache
+
+        result: dict[str, Any] = {
+            "health": {"status": "ok", "version": get_settings().app.version},
+            "cache": get_cache().stats(),
+        }
+
+        # Latest report summary
+        report_dir = Path(get_settings().reports.output_directory)
+        latest = _latest_report_json(report_dir)
+        if latest:
+            result["latest_report"] = {
+                "seed_keywords": latest.get("seed_keywords", []),
+                "niche_count": len(latest.get("top_niches", [])),
+                "top_niches": latest.get("top_niches", [])[:5],
+                "metadata": latest.get("metadata", {}),
+            }
+        else:
+            result["latest_report"] = None
+
+        # Recent reports list (last 10)
+        if report_dir.is_dir():
+            reports = []
+            for f in sorted(report_dir.glob("*.json"), reverse=True)[:10]:
+                try:
+                    data = _json.loads(f.read_text())
+                    reports.append({
+                        "filename": f.name,
+                        "seed_keywords": data.get("seed_keywords", []),
+                        "niche_count": len(data.get("top_niches", [])),
+                        "created": f.stat().st_mtime,
+                    })
+                except Exception:
+                    continue
+            result["recent_reports"] = reports
+        else:
+            result["recent_reports"] = []
+
+        return result
 
     return app
 
