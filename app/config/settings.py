@@ -102,6 +102,7 @@ class VertexAIConfig(BaseModel):
     enabled: bool = False
     project: str = ""
     region: str = "us-central1"
+    client_id: str = ""
     cache_ttl_hours: int = 24
 
 
@@ -196,6 +197,7 @@ _ENV_MAP: list[tuple[str, tuple[str, ...], type]] = [
     ("GS_VERTEX_AI_ENABLED",         ("vertex_ai", "enabled"),                    bool),
     ("GS_VERTEX_AI_PROJECT",         ("vertex_ai", "project"),                    str),
     ("GS_VERTEX_AI_REGION",          ("vertex_ai", "region"),                     str),
+    ("GS_VERTEX_CLIENT_ID",          ("vertex_ai", "client_id"),                  str),
     ("GS_VERTEX_AI_CACHE_TTL_HOURS", ("vertex_ai", "cache_ttl_hours"),            int),
 ]
 
