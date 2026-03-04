@@ -29,6 +29,13 @@ from app.ui.panels import (
     build_keyword_panel,
 )
 from app.ui.export import export_json, export_markdown
+from app.ui.views import (
+    build_dashboard_view,
+    build_niche_analysis_view,
+    build_video_strategy_view,
+    build_reports_view,
+    build_system_status_view,
+)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  App initialisation
@@ -113,7 +120,7 @@ _panel_style: dict[str, Any] = {
 # ══════════════════════════════════════════════════════════════════════════════
 
 
-def _nav_item(icon: str, label: str, active: bool = False) -> html.Div:
+def _nav_item(icon: str, label: str, nav_id: str, active: bool = False) -> html.Div:
     bg = "rgba(0,230,118,0.08)" if active else "transparent"
     border = f"3px solid {ACCENT_GREEN}" if active else "3px solid transparent"
     return html.Div(
@@ -129,6 +136,8 @@ def _nav_item(icon: str, label: str, active: bool = False) -> html.Div:
             "cursor": "pointer",
             "transition": "all 0.2s",
         }),
+        id=nav_id,
+        n_clicks=0,
     )
 
 
@@ -172,12 +181,12 @@ sidebar = html.Div([
 
     # Navigation
     html.Div([
-        _nav_item("🗺️", "Discovery Map", active=True),
-        _nav_item("📊", "Dashboard"),
-        _nav_item("🔍", "Niche Analysis"),
-        _nav_item("🎬", "Video Strategy"),
-        _nav_item("📋", "Reports"),
-        _nav_item("⚙️", "System Status"),
+        _nav_item("🗺️", "Discovery Map", "nav-map", active=True),
+        _nav_item("📊", "Dashboard", "nav-dashboard"),
+        _nav_item("🔍", "Niche Analysis", "nav-niche"),
+        _nav_item("🎬", "Video Strategy", "nav-strategy"),
+        _nav_item("📋", "Reports", "nav-reports"),
+        _nav_item("⚙️", "System Status", "nav-status"),
     ], style={"marginTop": "8px"}),
 
     html.Hr(style={"borderColor": BORDER, "margin": "12px 20px"}),
@@ -432,6 +441,8 @@ stores = html.Div([
     dcc.Store(id="store-report", data=None),         # raw pipeline response
     dcc.Store(id="store-graph-data", data=None),      # graph elements cache
     dcc.Store(id="store-png-trigger", data=0),         # PNG export trigger
+    dcc.Store(id="store-active-page", data="map"),     # current nav page
+    dcc.Store(id="store-health", data=None),           # health data for status view
     dcc.Download(id="download-json"),
     dcc.Download(id="download-md"),
     dcc.Interval(id="health-interval", interval=30_000, n_intervals=0),
@@ -442,12 +453,24 @@ stores = html.Div([
 #  Page layout
 # ══════════════════════════════════════════════════════════════════════════════
 
+# Container for non-map page views
+page_content = html.Div(
+    id="page-content",
+    style={
+        "flex": "1",
+        "overflowY": "auto",
+        "padding": "24px",
+        "display": "none",
+    },
+)
+
 app.layout = html.Div([
     sidebar,
     html.Div([
         header,
         stats_bar,
-        graph_workspace,
+        html.Div(id="map-wrapper", children=[graph_workspace], style=_graph_style),
+        page_content,
     ], style=_main_style),
     analysis_panel,
     loading_overlay,
@@ -725,6 +748,7 @@ app.clientside_callback(
 
 @callback(
     Output("backend-status", "children"),
+    Output("store-health", "data"),
     Input("health-interval", "n_intervals"),
 )
 def check_health(_: int):
@@ -735,11 +759,11 @@ def check_health(_: int):
         return html.Span([
             html.Span("● ", style={"color": ACCENT_GREEN}),
             f"Backend online · v{version}",
-        ])
+        ]), result
     return html.Span([
         html.Span("● ", style={"color": ACCENT_RED}),
         "Backend offline",
-    ])
+    ]), result
 
 
 # ── 9. Show loading overlay on button clicks ───────────────────────────────
@@ -761,6 +785,105 @@ app.clientside_callback(
     Input("btn-deep-discover", "n_clicks"),
     prevent_initial_call=True,
 )
+
+
+# ── 10. Navigation – set active page ────────────────────────────────────────
+
+_NAV_IDS = ["nav-map", "nav-dashboard", "nav-niche", "nav-strategy", "nav-reports", "nav-status"]
+_PAGE_MAP = {
+    "nav-map": "map",
+    "nav-dashboard": "dashboard",
+    "nav-niche": "niche",
+    "nav-strategy": "strategy",
+    "nav-reports": "reports",
+    "nav-status": "status",
+}
+
+@callback(
+    Output("store-active-page", "data"),
+    [Input(nid, "n_clicks") for nid in _NAV_IDS],
+    prevent_initial_call=True,
+)
+def navigate(*n_clicks):
+    triggered = ctx.triggered_id
+    if triggered in _PAGE_MAP:
+        return _PAGE_MAP[triggered]
+    return no_update
+
+
+# ── 11. Navigation – highlight active item & update styles ─────────────────
+
+def _nav_style(active: bool) -> dict:
+    bg = "rgba(0,230,118,0.08)" if active else "transparent"
+    border = f"3px solid {ACCENT_GREEN}" if active else "3px solid transparent"
+    return {
+        "display": "flex", "alignItems": "center",
+        "padding": "10px 20px",
+        "borderLeft": border,
+        "backgroundColor": bg,
+        "color": TEXT_PRIMARY if active else TEXT_SECONDARY,
+        "cursor": "pointer",
+        "transition": "all 0.2s",
+    }
+
+
+@callback(
+    [Output(nid, "children") for nid in _NAV_IDS],
+    Input("store-active-page", "data"),
+)
+def highlight_nav(page):
+    icons = ["🗺️", "📊", "🔍", "🎬", "📋", "⚙️"]
+    labels = ["Discovery Map", "Dashboard", "Niche Analysis", "Video Strategy", "Reports", "System Status"]
+    pages = ["map", "dashboard", "niche", "strategy", "reports", "status"]
+    results = []
+    for icon, label, pg in zip(icons, labels, pages):
+        active = pg == page
+        results.append(html.Div([
+            html.Span(icon, style={"fontSize": "16px", "marginRight": "10px"}),
+            html.Span(label, style={"fontSize": "13px"}),
+        ], style=_nav_style(active)))
+    return results
+
+
+# ── 12. Navigation – swap page content ─────────────────────────────────────
+
+@callback(
+    Output("map-wrapper", "style"),
+    Output("stats-bar", "style", allow_duplicate=True),
+    Output("page-content", "style"),
+    Output("page-content", "children"),
+    Input("store-active-page", "data"),
+    State("store-report", "data"),
+    State("store-health", "data"),
+    prevent_initial_call=True,
+)
+def swap_page(page, report_data, health_data):
+    map_visible = {**_graph_style, "display": "block" if page == "map" else "none"}
+    stats_visible = {
+        "display": "flex" if page == "map" else "none",
+        "gap": "12px", "padding": "10px 20px",
+        "backgroundColor": BG_PRIMARY, "borderBottom": f"1px solid {BORDER}",
+        "overflowX": "auto",
+    }
+    content_style = {
+        "flex": "1",
+        "overflowY": "auto",
+        "padding": "24px",
+        "display": "none" if page == "map" else "block",
+    }
+
+    if page == "map":
+        return map_visible, stats_visible, content_style, no_update
+
+    builders = {
+        "dashboard": lambda: build_dashboard_view(report_data),
+        "niche": lambda: build_niche_analysis_view(report_data),
+        "strategy": lambda: build_video_strategy_view(report_data),
+        "reports": lambda: build_reports_view(report_data),
+        "status": lambda: build_system_status_view(report_data, health_data),
+    }
+    children = builders.get(page, lambda: [])()
+    return map_visible, stats_visible, content_style, children
 
 
 # ══════════════════════════════════════════════════════════════════════════════
