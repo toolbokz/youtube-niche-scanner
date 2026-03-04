@@ -46,14 +46,17 @@ app/
 ├── monetization_engine/   # Monetization strategy generation
 ├── report_generation/     # JSON + Markdown report output
 ├── api/            # FastAPI endpoints
-├── ui/             # Interactive Discovery Map (Plotly Dash)
-│   ├── app.py          # Main Dash application, layout & callbacks
-│   ├── api_client.py   # HTTP client for FastAPI backend
-│   ├── graph_engine.py  # NetworkX → Cytoscape graph conversion
-│   ├── styles.py        # Dark analytics theme & Cytoscape stylesheet
-│   ├── panels.py        # Side-panel component builders (charts, details)
-│   └── export.py        # JSON / Markdown / PNG export utilities
 └── cli.py          # Click-based CLI interface
+
+frontend/               # React + Next.js dashboard
+├── src/
+│   ├── app/            # Next.js App Router pages
+│   ├── components/     # UI components, charts, layout
+│   ├── hooks/          # TanStack Query hooks
+│   ├── services/       # API client
+│   ├── store/          # Zustand state management
+│   ├── lib/            # Utilities
+│   └── types/          # TypeScript type definitions
 ```
 
 ---
@@ -96,24 +99,28 @@ python main.py serve
 # Access docs at http://localhost:8000/docs
 ```
 
-### 4. Launch Interactive Discovery Map
+### 4. Launch Frontend Dashboard
 
 ```bash
-# Start the backend first
-python main.py serve
+# Make sure the backend is running first (step 3)
 
-# In another terminal — launch the Dash UI
-python -m app.ui.app
+# In another terminal:
+cd frontend
+npm install
+npm run dev
 
-# Open http://localhost:8050
+# Open http://localhost:3000
 ```
 
-The Discovery Map provides:
-- **Interactive network visualization** — Cytoscape.js topic graph with niche, keyword, viral, and trend nodes
-- **Layer toggles** — Show/hide keywords, viral opportunities, and trend signals
-- **Node analysis** — Click any node for deep-dive panels (radar charts, velocity sparklines, thumbnail donuts)
-- **Discovery controls** — Seed keyword analysis, auto-discover, and deep-discover modes
-- **Export** — Download reports as JSON, Markdown, or PNG screenshot
+The dashboard provides:
+- **Dashboard overview** — Key metrics, top niches, viral opportunities, trending topics
+- **Niche Discovery** — Sortable table with search/filters, seed keyword analysis, auto & deep discovery modes
+- **Niche Detail** — Radar charts, velocity graphs, competition insights, viral opportunity tables
+- **Video Strategy** — Channel concepts, audience personas, video ideas with expandable blueprints
+- **Thumbnail Insights** — Color analysis, face frequency, text usage, contrast patterns
+- **Report Explorer** — Browse, search, view, and download saved reports (JSON + Markdown)
+- **System** — Backend health, cache stats, configuration
+- **Dark/Light theme** — Persistent theme toggle
 
 ### 5. Other Commands
 

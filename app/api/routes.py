@@ -1,16 +1,15 @@
 """FastAPI application and routes."""
 from __future__ import annotations
 
+import json as _json
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncGenerator
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.middleware.wsgi import WSGIMiddleware
 from starlette.responses import Response
 from pydantic import BaseModel, Field
 
@@ -20,11 +19,6 @@ from app.core.pipeline import PipelineOrchestrator
 from app.database import init_db, close_db
 
 logger = get_logger(__name__)
-
-# Resolve paths relative to this file
-_APP_DIR = Path(__file__).resolve().parent.parent
-_STATIC_DIR = _APP_DIR / "static"
-_TEMPLATE_DIR = _APP_DIR / "templates"
 
 
 # ── Request/Response Models ────────────────────────────────────────────────────
@@ -116,10 +110,13 @@ def create_app() -> FastAPI:
         redoc_url="/redoc" if settings.app.debug else None,
     )
 
-    # CORS
+    # CORS — allow frontend dev server and production origins
+    cors_origins = settings.api.cors_origins
+    if "http://localhost:3000" not in cors_origins and "*" not in cors_origins:
+        cors_origins = [*cors_origins, "http://localhost:3000"]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.api.cors_origins,
+        allow_origins=cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -128,24 +125,12 @@ def create_app() -> FastAPI:
     # Security headers
     app.add_middleware(SecurityHeadersMiddleware)
 
-    # Mount static assets (CSS, JS) — legacy
-    if _STATIC_DIR.is_dir():
-        app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
-
-    # ── Mount Dash Discovery Map at /map ──
-    try:
-        from app.ui.app import app as dash_app
-        app.mount("/map", WSGIMiddleware(dash_app.server))
-        logger.info("dash_mounted", path="/map")
-    except Exception as exc:  # pragma: no cover
-        logger.warning("dash_mount_failed", error=str(exc))
-
     # ── Routes ──
 
     @app.get("/", include_in_schema=False)
-    async def root_redirect():
-        """Redirect root to the Discovery Map UI."""
-        return RedirectResponse(url="/map/", status_code=302)
+    async def root_info():
+        """API root — return service info."""
+        return {"service": settings.app.name, "version": settings.app.version, "docs": "/docs"}
 
     @app.get("/health", response_model=HealthResponse)
     async def health_check() -> HealthResponse:
@@ -337,13 +322,82 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=503, detail=result["error"])
         return {"status": "success", "trend_forecast": result}
 
+    # ── Reports endpoints ──────────────────────────────────────────────
+
+    @app.get("/reports")
+    async def list_reports(
+        search: str = Query(default="", description="Search term to filter reports"),
+        limit: int = Query(default=50, ge=1, le=200),
+    ) -> dict[str, Any]:
+        """List saved analysis reports."""
+        report_dir = Path(get_settings().reports.output_directory)
+        if not report_dir.is_dir():
+            return {"reports": []}
+
+        reports = []
+        for f in sorted(report_dir.glob("*.json"), reverse=True)[:limit]:
+            try:
+                data = _json.loads(f.read_text())
+                summary = {
+                    "filename": f.name,
+                    "seed_keywords": data.get("seed_keywords", []),
+                    "niche_count": len(data.get("top_niches", [])),
+                    "metadata": data.get("metadata", {}),
+                    "created": f.stat().st_mtime,
+                }
+                if search and search.lower() not in _json.dumps(summary).lower():
+                    continue
+                reports.append(summary)
+            except Exception:
+                continue
+        return {"reports": reports}
+
+    @app.get("/reports/{filename}")
+    async def get_report(filename: str) -> dict[str, Any]:
+        """Get a single report by filename."""
+        report_dir = Path(get_settings().reports.output_directory)
+        path = report_dir / filename
+        if not path.exists() or not path.suffix == ".json":
+            raise HTTPException(status_code=404, detail="Report not found")
+        try:
+            data = _json.loads(path.read_text())
+            return {"status": "success", "report": data}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.get("/reports/{filename}/download")
+    async def download_report(
+        filename: str,
+        format: str = Query(default="json", description="json or markdown"),
+    ) -> Response:
+        """Download a report in JSON or Markdown format."""
+        report_dir = Path(get_settings().reports.output_directory)
+
+        if format == "markdown":
+            md_name = filename.replace(".json", ".md")
+            path = report_dir / md_name
+            if path.exists():
+                return Response(
+                    content=path.read_text(),
+                    media_type="text/markdown",
+                    headers={"Content-Disposition": f'attachment; filename="{md_name}"'},
+                )
+            raise HTTPException(status_code=404, detail="Markdown report not found")
+
+        path = report_dir / filename
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="Report not found")
+        return Response(
+            content=path.read_text(),
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
     return app
 
 
 def _latest_report_json(report_dir: Path) -> dict[str, Any] | None:
     """Load the most recent JSON report file."""
-    import json as _json
-
     if not report_dir.is_dir():
         return None
 
