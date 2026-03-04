@@ -13,17 +13,21 @@ from app.connectors.youtube_autocomplete import YouTubeAutocompleteConnector
 from app.connectors.youtube_search import YouTubeSearchConnector
 from app.competition_analysis.engine import CompetitionAnalysisEngine
 from app.ctr_prediction.engine import CTRPredictionEngine
+from app.discovery_engine.engine import DiscoveryEngine
 from app.faceless_viability.engine import FacelessViabilityEngine
 from app.keyword_expansion.engine import KeywordExpansionEngine
 from app.niche_clustering.engine import NicheClusteringEngine
 from app.ranking_engine.engine import NicheRankingEngine
 from app.report_generation.engine import ReportGenerationEngine
+from app.thumbnail_analysis.engine import ThumbnailAnalysisEngine
+from app.topic_velocity.engine import TopicVelocityEngine
 from app.trend_discovery.engine import TrendDiscoveryEngine
 from app.video_strategy.blueprint import BlueprintAssembler
 from app.video_strategy.engine import VideoStrategyEngine
+from app.viral_opportunity_detector.engine import ViralOpportunityDetector
 from app.virality_prediction.engine import ViralityPredictionEngine
 from app.core.logging import get_logger
-from app.core.models import NicheReport
+from app.core.models import NicheReport, ViralOpportunity, TopicVelocityResult, ThumbnailPatternResult, DiscoverySource
 
 logger = get_logger(__name__)
 
@@ -56,6 +60,14 @@ class PipelineOrchestrator:
         self.video_strategy_engine = VideoStrategyEngine()
         self.blueprint_assembler = BlueprintAssembler()
         self.report_engine = ReportGenerationEngine()
+
+        # New advanced engines
+        self.discovery_engine = DiscoveryEngine(
+            self.google_trends, self.reddit, self.yt_autocomplete, self.yt_search
+        )
+        self.viral_opportunity_detector = ViralOpportunityDetector(self.yt_search)
+        self.topic_velocity_engine = TopicVelocityEngine(self.yt_search)
+        self.thumbnail_analysis_engine = ThumbnailAnalysisEngine(self.yt_search)
 
     async def run_full_pipeline(
         self,
@@ -132,6 +144,9 @@ class PipelineOrchestrator:
         # ── Step 4-7: Analysis per niche ──
         logger.info("step_4_7_per_niche_analysis")
         niche_data: dict[str, dict[str, Any]] = {}
+        all_viral_opportunities: dict[str, list[ViralOpportunity]] = {}
+        all_topic_velocities: dict[str, TopicVelocityResult] = {}
+        all_thumbnail_patterns: dict[str, ThumbnailPatternResult] = {}
 
         for cluster in clusters:
             niche_name = cluster.name
@@ -149,6 +164,27 @@ class PipelineOrchestrator:
             # Faceless (sync)
             faceless = self.faceless_engine.analyze_niche(niche_name, keywords)
 
+            # Viral Opportunity Detection (async)
+            viral_opp_result = await self.viral_opportunity_detector.analyze_niche(
+                niche_name, keywords
+            )
+            if viral_opp_result and viral_opp_result.opportunities:
+                all_viral_opportunities[niche_name] = viral_opp_result.opportunities
+
+            # Topic Velocity (async)
+            velocity_result = await self.topic_velocity_engine.analyze_niche(
+                niche_name, keywords
+            )
+            if velocity_result:
+                all_topic_velocities[niche_name] = velocity_result
+
+            # Thumbnail Analysis (async)
+            thumbnail_result = await self.thumbnail_analysis_engine.analyze_niche(
+                niche_name, keywords
+            )
+            if thumbnail_result:
+                all_thumbnail_patterns[niche_name] = thumbnail_result
+
             # Demand: average trend momentum of known keywords
             kw_demands = [demand_map.get(kw, 50.0) for kw in keywords if kw in demand_map]
             demand_score = sum(kw_demands) / len(kw_demands) if kw_demands else 50.0
@@ -160,6 +196,8 @@ class PipelineOrchestrator:
                 "virality": virality,
                 "ctr": ctr,
                 "faceless": faceless,
+                "viral_opportunity": viral_opp_result,
+                "topic_velocity": velocity_result,
                 "keywords": keywords,
             }
 
@@ -201,10 +239,18 @@ class PipelineOrchestrator:
             top_niches=top_niches,
             channel_concepts=channel_concepts,
             video_blueprints=video_blueprints,
+            viral_opportunities=all_viral_opportunities,
+            topic_velocities=all_topic_velocities,
+            thumbnail_patterns=all_thumbnail_patterns,
             metadata={
                 "total_keywords_analyzed": len(all_keywords),
                 "total_clusters": len(clusters),
                 "pipeline_duration_seconds": elapsed,
+                "viral_opportunities_found": sum(
+                    len(v) for v in all_viral_opportunities.values()
+                ),
+                "niches_with_velocity_data": len(all_topic_velocities),
+                "niches_with_thumbnail_analysis": len(all_thumbnail_patterns),
             },
         )
 
@@ -218,6 +264,59 @@ class PipelineOrchestrator:
             blueprints=sum(len(v) for v in video_blueprints.values()),
             report_paths={k: str(v) for k, v in paths.items()},
         )
+
+        return report
+
+    async def run_discovery_pipeline(
+        self,
+        max_seeds: int = 20,
+        deep: bool = False,
+        top_n: int | None = None,
+        videos_per_niche: int | None = None,
+    ) -> NicheReport:
+        """Automatic discovery mode - no user seed keywords required.
+
+        Uses the DiscoveryEngine to find trending topics, then feeds
+        them through the standard analysis pipeline.
+
+        Args:
+            max_seeds: Maximum number of seeds to auto-discover.
+            deep: If True, discover up to 50 seeds for broader coverage.
+            top_n: Override for how many top niches to return.
+            videos_per_niche: Override for blueprint count per niche.
+        """
+        if deep:
+            max_seeds = max(max_seeds, 50)
+            if top_n is None:
+                top_n = 50
+
+        logger.info("discovery_pipeline_started", deep=deep, max_seeds=max_seeds)
+
+        discovered = await self.discovery_engine.discover_topics(
+            max_seeds=max_seeds, deep=deep
+        )
+
+        if not discovered:
+            logger.warning("no_topics_discovered")
+            discovered_keywords = ["youtube growth", "content creation", "side hustle"]
+        else:
+            discovered_keywords = [d.topic for d in discovered]
+
+        logger.info("discovery_seeds_generated", count=len(discovered_keywords))
+
+        report = await self.run_full_pipeline(
+            seed_keywords=discovered_keywords,
+            top_n=top_n,
+            videos_per_niche=videos_per_niche,
+        )
+
+        # Enrich metadata with discovery info
+        report.metadata["discovery_mode"] = True
+        report.metadata["deep_mode"] = deep
+        report.metadata["auto_discovered_seeds"] = len(discovered_keywords)
+        report.metadata["discovery_sources"] = list(
+            {d.source for d in discovered}
+        ) if discovered else []
 
         return report
 

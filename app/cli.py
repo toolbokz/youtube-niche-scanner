@@ -90,6 +90,17 @@ async def _run_analysis(seed_keywords: list[str], top_n: int, videos: int) -> No
 
 def _display_results(report: Any) -> None:
     """Display pipeline results in the terminal."""
+    # Discovery mode header
+    if report.metadata.get("discovery_mode"):
+        console.print(Panel(
+            f"[bold magenta]Auto-Discovery Mode[/bold magenta]\n"
+            f"Seeds discovered: {report.metadata.get('auto_discovered_seeds', '?')}\n"
+            f"Deep mode: {'Yes' if report.metadata.get('deep_mode') else 'No'}\n"
+            f"Sources: {', '.join(report.metadata.get('discovery_sources', []))}",
+            title="🔍 Discovery",
+            border_style="magenta",
+        ))
+
     # Niche ranking table
     table = Table(title="🏆 Top Niches Ranked", show_lines=True)
     table.add_column("Rank", style="bold cyan", width=5)
@@ -100,7 +111,8 @@ def _display_results(report: Any) -> None:
     table.add_column("Trend", width=8)
     table.add_column("Virality", width=9)
     table.add_column("CTR", width=6)
-    table.add_column("Faceless", width=9)
+    table.add_column("Viral Opp", width=10)
+    table.add_column("Velocity", width=9)
 
     for niche in report.top_niches:
         table.add_row(
@@ -112,10 +124,43 @@ def _display_results(report: Any) -> None:
             f"{niche.trend_momentum:.1f}",
             f"{niche.virality_score:.1f}",
             f"{niche.ctr_potential:.1f}",
-            f"{niche.faceless_viability:.1f}",
+            f"{niche.viral_opportunity_score:.1f}",
+            f"{niche.topic_velocity_score:.1f}",
         )
 
     console.print(table)
+
+    # Viral opportunities summary
+    if report.viral_opportunities:
+        console.print("\n[bold red]🔥 Viral Opportunities Detected:[/bold red]")
+        for niche_name, opps in report.viral_opportunities.items():
+            if opps:
+                top_opp = max(opps, key=lambda o: o.opportunity_score)
+                console.print(
+                    f"  • [yellow]{niche_name}[/yellow]: {len(opps)} anomalies — "
+                    f"Best: {top_opp.channel_name} ({top_opp.channel_subscribers:,} subs, "
+                    f"{top_opp.video_views:,} views)"
+                )
+
+    # Topic velocity summary
+    if report.topic_velocities:
+        console.print("\n[bold blue]📈 Topic Velocity:[/bold blue]")
+        for niche_name, vel in report.topic_velocities.items():
+            trend = "⬆" if vel.acceleration > 0.2 else "⬇" if vel.acceleration < -0.2 else "➡"
+            console.print(
+                f"  • [yellow]{niche_name}[/yellow]: {trend} "
+                f"Growth {vel.growth_rate:.2f}x | Velocity {vel.velocity_score:.0f}/100"
+            )
+
+    # Thumbnail pattern summary
+    if report.thumbnail_patterns:
+        console.print("\n[bold magenta]🎨 Thumbnail Patterns:[/bold magenta]")
+        for niche_name, tp in report.thumbnail_patterns.items():
+            styles = ", ".join(sg.style_label for sg in tp.style_groups[:3])
+            console.print(
+                f"  • [yellow]{niche_name}[/yellow]: {tp.total_analyzed} analyzed — "
+                f"Styles: {styles}"
+            )
 
     # Channel concepts summary
     console.print("\n[bold cyan]📺 Channel Concepts:[/bold cyan]")
@@ -136,6 +181,74 @@ def _display_results(report: Any) -> None:
     # Metadata
     if report.metadata:
         console.print(f"\n[dim]Pipeline stats: {json.dumps(report.metadata, indent=2)}[/dim]")
+
+
+@cli.command()
+@click.option("--deep", is_flag=True, help="Deep discovery — broader search, more niches")
+@click.option("--top-n", "-n", default=20, help="Number of top niches to return")
+@click.option("--videos", "-v", default=10, help="Number of video ideas per niche")
+@click.option("--max-seeds", "-s", default=20, help="Max seed topics to discover")
+def discover(deep: bool, top_n: int, videos: int, max_seeds: int) -> None:
+    """Automatic niche discovery — no seed keywords needed.
+
+    Scans Google Trends, YouTube, Reddit, and autocomplete to find
+    trending topics automatically, then runs the full analysis pipeline.
+
+    Use --deep for broader coverage (50+ seeds, 50 top niches).
+
+    Examples:
+        python main.py discover
+        python main.py discover --deep
+        python main.py discover --top-n 30 --max-seeds 40
+    """
+    mode = "[bold magenta]Deep Discovery[/bold magenta]" if deep else "[bold cyan]Auto-Discovery[/bold cyan]"
+
+    console.print(Panel(
+        f"{mode} Mode\n\n"
+        f"Max seeds: [yellow]{max_seeds}[/yellow]\n"
+        f"Top niches: {top_n} | Videos per niche: {videos}\n"
+        f"[dim]No seed keywords required — scanning live signals[/dim]",
+        title="🔍 Automatic Discovery",
+        border_style="magenta" if deep else "cyan",
+    ))
+
+    asyncio.run(_run_discovery(deep, top_n, videos, max_seeds))
+
+
+async def _run_discovery(deep: bool, top_n: int, videos: int, max_seeds: int) -> None:
+    """Execute the discovery pipeline asynchronously."""
+    from app.core.pipeline import PipelineOrchestrator
+    from app.database import init_db
+
+    await init_db()
+
+    pipeline = PipelineOrchestrator()
+
+    try:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Discovering trending topics...", total=None)
+
+            report = await pipeline.run_discovery_pipeline(
+                max_seeds=max_seeds,
+                deep=deep,
+                top_n=top_n,
+                videos_per_niche=videos,
+            )
+
+            progress.update(task, description="[green]Discovery complete!")
+
+        _display_results(report)
+
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        logger.error("discovery_error", error=str(e))
+        sys.exit(1)
+    finally:
+        await pipeline.close()
 
 
 @cli.command()

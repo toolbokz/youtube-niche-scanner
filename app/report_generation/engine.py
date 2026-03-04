@@ -12,7 +12,10 @@ from app.core.models import (
     ChannelConcept,
     NicheReport,
     NicheScore,
+    ThumbnailPatternResult,
+    TopicVelocityResult,
     VideoBlueprint,
+    ViralOpportunity,
 )
 
 logger = get_logger(__name__)
@@ -33,6 +36,9 @@ class ReportGenerationEngine:
         channel_concepts: list[ChannelConcept],
         video_blueprints: dict[str, list[VideoBlueprint]],
         metadata: dict[str, Any] | None = None,
+        viral_opportunities: dict[str, list[ViralOpportunity]] | None = None,
+        topic_velocities: dict[str, TopicVelocityResult] | None = None,
+        thumbnail_patterns: dict[str, ThumbnailPatternResult] | None = None,
     ) -> NicheReport:
         """Build the complete report model."""
         report = NicheReport(
@@ -40,6 +46,9 @@ class ReportGenerationEngine:
             top_niches=top_niches,
             channel_concepts=channel_concepts,
             video_blueprints=video_blueprints,
+            viral_opportunities=viral_opportunities or {},
+            topic_velocities=topic_velocities or {},
+            thumbnail_patterns=thumbnail_patterns or {},
             metadata=metadata or {},
         )
         return report
@@ -97,16 +106,168 @@ class ReportGenerationEngine:
         # ── Top Niches Table ──
         lines.append("## Top Niches Ranked")
         lines.append("")
-        lines.append("| Rank | Niche | Score | Demand | Competition | Trend | Virality | CTR | Faceless |")
-        lines.append("|------|-------|-------|--------|-------------|-------|----------|-----|----------|")
+        lines.append(
+            "| Rank | Niche | Score | Demand | Competition | Trend "
+            "| Virality | CTR | Viral Opp. | Velocity |"
+        )
+        lines.append(
+            "|------|-------|-------|--------|-------------|-------"
+            "|----------|-----|------------|----------|"
+        )
 
         for n in report.top_niches:
             lines.append(
                 f"| {n.rank} | {n.niche} | **{n.overall_score}** | "
                 f"{n.demand_score} | {n.competition_score} | {n.trend_momentum} | "
-                f"{n.virality_score} | {n.ctr_potential} | {n.faceless_viability} |"
+                f"{n.virality_score} | {n.ctr_potential} | "
+                f"{n.viral_opportunity_score} | {n.topic_velocity_score} |"
             )
         lines.append("")
+
+        # ── Why Niches Ranked Highly ──
+        if report.top_niches:
+            lines.append("## Why These Niches Ranked Highly")
+            lines.append("")
+            for n in report.top_niches[:5]:
+                lines.append(f"### #{n.rank} — {n.niche} (Score: {n.overall_score})")
+                strengths: list[str] = []
+                if n.demand_score >= 70:
+                    strengths.append(f"Strong demand ({n.demand_score})")
+                if n.competition_score >= 60:
+                    strengths.append(f"Favorable competition gap ({n.competition_score})")
+                if n.trend_momentum >= 60:
+                    strengths.append(f"High trend momentum ({n.trend_momentum})")
+                if n.virality_score >= 60:
+                    strengths.append(f"Viral potential ({n.virality_score})")
+                if n.viral_opportunity_score >= 50:
+                    strengths.append(
+                        f"Small-channel viral success ({n.viral_opportunity_score})"
+                    )
+                if n.topic_velocity_score >= 50:
+                    strengths.append(
+                        f"Accelerating content uploads ({n.topic_velocity_score})"
+                    )
+                if n.ctr_potential >= 60:
+                    strengths.append(f"High CTR potential ({n.ctr_potential})")
+                if strengths:
+                    lines.append("\n**Key Strengths:**")
+                    for s in strengths:
+                        lines.append(f"- {s}")
+                else:
+                    lines.append("\nBalanced scores across all metrics.")
+                lines.append("")
+
+        # ── Viral Opportunities ──
+        if report.viral_opportunities:
+            lines.append("## Viral Opportunity Detector")
+            lines.append("")
+            lines.append(
+                "Small channels (<50K subscribers) achieving outsized viewership, "
+                "indicating exploitable content gaps."
+            )
+            lines.append("")
+
+            for niche_name, opps in report.viral_opportunities.items():
+                if not opps:
+                    continue
+                lines.append(f"### {niche_name}")
+                lines.append(f"\n**{len(opps)} viral anomalies detected**\n")
+                lines.append(
+                    "| Channel | Subscribers | Video | Views "
+                    "| Views/Sub Ratio | Age (days) | Score |"
+                )
+                lines.append(
+                    "|---------|------------|-------|-------"
+                    "|----------------|------------|-------|"
+                )
+                for opp in sorted(opps, key=lambda o: o.opportunity_score, reverse=True)[:10]:
+                    lines.append(
+                        f"| {opp.channel_name} | {opp.channel_subscribers:,} "
+                        f"| {opp.video_title[:50]} | {opp.video_views:,} "
+                        f"| {opp.views_to_sub_ratio:.1f}x "
+                        f"| {opp.video_age_days} | {opp.opportunity_score:.0f} |"
+                    )
+                lines.append("")
+            lines.append("")
+
+        # ── Topic Velocity ──
+        if report.topic_velocities:
+            lines.append("## Topic Velocity Analysis")
+            lines.append("")
+            lines.append(
+                "Measures how fast content upload volume is growing — "
+                "rising velocity signals an emerging opportunity window."
+            )
+            lines.append("")
+
+            for niche_name, vel in report.topic_velocities.items():
+                lines.append(f"### {niche_name}")
+                trend_label = (
+                    "Accelerating" if vel.acceleration > 0.2
+                    else "Decelerating" if vel.acceleration < -0.2
+                    else "Steady"
+                )
+                lines.append(
+                    f"\n- **Growth Rate:** {vel.growth_rate:.2f}x "
+                    f"(newest week vs oldest)"
+                )
+                lines.append(f"- **Acceleration:** {vel.acceleration:+.2f}")
+                lines.append(f"- **Trend:** {trend_label}")
+                lines.append(f"- **Velocity Score:** {vel.velocity_score:.0f}/100")
+
+                if vel.weekly_volumes:
+                    lines.append("\n**Weekly Upload Volume:**")
+                    lines.append("")
+                    lines.append("| Week | Uploads |")
+                    lines.append("|------|---------|")
+                    for wv in vel.weekly_volumes:
+                        bar = "█" * min(wv.upload_count, 50)
+                        lines.append(f"| {wv.week_label} | {wv.upload_count} {bar} |")
+                lines.append("")
+            lines.append("")
+
+        # ── Thumbnail Patterns ──
+        if report.thumbnail_patterns:
+            lines.append("## Thumbnail Pattern Analysis")
+            lines.append("")
+            lines.append(
+                "Visual analysis of top-performing thumbnails to identify "
+                "winning design patterns."
+            )
+            lines.append("")
+
+            for niche_name, tp in report.thumbnail_patterns.items():
+                lines.append(f"### {niche_name}")
+                lines.append(f"\n*{tp.total_analyzed} thumbnails analyzed*")
+
+                if tp.insight:
+                    lines.append(f"\n**Insight:** {tp.insight}")
+
+                if tp.style_groups:
+                    lines.append("\n**Dominant Styles:**\n")
+                    lines.append(
+                        "| Style | Count | Avg Views | Colors "
+                        "| Text % | Face % | Contrast |"
+                    )
+                    lines.append(
+                        "|-------|-------|-----------|--------"
+                        "|--------|--------|----------|"
+                    )
+                    for sg in tp.style_groups:
+                        colors = ", ".join(sg.dominant_colors[:3]) if sg.dominant_colors else "—"
+                        lines.append(
+                            f"| {sg.style_label} | {sg.count} "
+                            f"| {sg.avg_views:,.0f} | {colors} "
+                            f"| {sg.text_prevalence:.0%} | {sg.face_prevalence:.0%} "
+                            f"| {sg.avg_contrast:.1f} |"
+                        )
+
+                if tp.recommendations:
+                    lines.append("\n**Recommendations:**")
+                    for rec in tp.recommendations:
+                        lines.append(f"- {rec}")
+                lines.append("")
+            lines.append("")
 
         # ── Channel Concepts ──
         lines.append("## Channel Concepts")

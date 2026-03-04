@@ -141,6 +141,8 @@ class NicheScore(BaseModel):
     virality_score: float = 0.0
     ctr_potential: float = 0.0
     faceless_viability: float = 0.0
+    viral_opportunity_score: float = 0.0
+    topic_velocity_score: float = 0.0
     overall_score: float = 0.0
     rank: int = 0
     keywords: list[str] = Field(default_factory=list)
@@ -261,4 +263,95 @@ class NicheReport(BaseModel):
     top_niches: list[NicheScore] = Field(default_factory=list)
     channel_concepts: list[ChannelConcept] = Field(default_factory=list)
     video_blueprints: dict[str, list[VideoBlueprint]] = Field(default_factory=dict)
+    viral_opportunities: dict[str, list["ViralOpportunity"]] = Field(default_factory=dict)
+    topic_velocities: dict[str, "TopicVelocityResult"] = Field(default_factory=dict)
+    thumbnail_patterns: dict[str, "ThumbnailPatternResult"] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+# ── Viral Opportunity Models ──────────────────────────────────────────────────
+
+class ViralOpportunity(BaseModel):
+    """A single viral opportunity — small channel with outsized views."""
+    video_title: str = ""
+    video_id: str = ""
+    channel_name: str = ""
+    channel_subscribers: int = 0
+    video_views: int = 0
+    video_age_days: int = 0
+    views_to_sub_ratio: float = 0.0
+    opportunity_score: float = 0.0
+
+
+class ViralOpportunityResult(BaseModel):
+    """Aggregated viral opportunity analysis for a niche."""
+    niche: str = ""
+    opportunities: list[ViralOpportunity] = Field(default_factory=list)
+    avg_opportunity_score: float = 0.0
+    anomaly_count: int = 0
+    viral_opportunity_score: float = 0.0
+
+
+# ── Topic Velocity Models ─────────────────────────────────────────────────────
+
+class WeeklyUploadVolume(BaseModel):
+    """Upload volume for a single week."""
+    week_label: str = ""
+    upload_count: int = 0
+
+
+class TopicVelocityResult(BaseModel):
+    """Topic velocity analysis showing content growth rate."""
+    niche: str = ""
+    weekly_volumes: list[WeeklyUploadVolume] = Field(default_factory=list)
+    growth_rate: float = 0.0
+    acceleration: float = 0.0
+    velocity_score: float = 0.0
+
+
+# ── Thumbnail Pattern Models ──────────────────────────────────────────────────
+
+class ThumbnailSignals(BaseModel):
+    """Visual signals extracted from a single thumbnail."""
+    video_id: str = ""
+    video_title: str = ""
+    dominant_colors: list[str] = Field(default_factory=list)
+    has_text: bool = False
+    text_coverage_pct: float = 0.0
+    has_face: bool = False
+    contrast_level: float = 0.0
+    brightness: float = 0.0
+    saturation: float = 0.0
+    visual_clutter_score: float = 0.0
+
+
+class ThumbnailStyleGroup(BaseModel):
+    """A cluster of thumbnails sharing similar visual style."""
+    group_id: int = 0
+    style_label: str = ""
+    count: int = 0
+    avg_views: float = 0.0
+    dominant_colors: list[str] = Field(default_factory=list)
+    text_prevalence: float = 0.0
+    face_prevalence: float = 0.0
+    avg_contrast: float = 0.0
+
+
+class ThumbnailPatternResult(BaseModel):
+    """Complete thumbnail pattern analysis for a niche."""
+    niche: str = ""
+    total_analyzed: int = 0
+    signals: list[ThumbnailSignals] = Field(default_factory=list)
+    style_groups: list[ThumbnailStyleGroup] = Field(default_factory=list)
+    insight: str = ""
+    recommendations: list[str] = Field(default_factory=list)
+
+
+# ── Discovery Engine Models ───────────────────────────────────────────────────
+
+class DiscoverySource(BaseModel):
+    """A single topic discovered from an automatic source."""
+    topic: str = ""
+    source: str = ""
+    score: float = 0.0
     metadata: dict[str, Any] = Field(default_factory=dict)

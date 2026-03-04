@@ -69,12 +69,13 @@ analysis:
 
 ranking:
   weights:
-    demand: 0.30
-    competition: 0.25
+    demand: 0.25
+    competition: 0.20
     trend_momentum: 0.15
     virality: 0.15
     ctr_potential: 0.10
-    faceless_viability: 0.05
+    viral_opportunity: 0.10
+    topic_velocity: 0.05
 
 reports:
   output_directory: "data/reports"

@@ -1,4 +1,15 @@
-"""Niche Ranking Engine - weighted scoring model for niche prioritization."""
+"""Niche Ranking Engine - weighted scoring model for niche prioritization.
+
+Upgraded formula:
+    Niche Score =
+      0.25 × Demand Score
+    + 0.20 × (100 − Competition Score)
+    + 0.15 × Trend Momentum
+    + 0.15 × Virality Score
+    + 0.10 × CTR Potential
+    + 0.10 × Viral Opportunity Score
+    + 0.05 × Topic Velocity
+"""
 from __future__ import annotations
 
 from typing import Any
@@ -11,6 +22,8 @@ from app.core.models import (
     FacelessViability,
     NicheScore,
     ViralityMetrics,
+    ViralOpportunityResult,
+    TopicVelocityResult,
 )
 
 logger = get_logger(__name__)
@@ -20,12 +33,13 @@ class NicheRankingEngine:
     """Rank niches using a weighted scoring algorithm.
 
     Niche Score =
-      0.30 * Demand Score
-    + 0.25 * (100 - Competition Score)  # Lower competition = higher opportunity
-    + 0.15 * Trend Momentum
-    + 0.15 * Virality Score
-    + 0.10 * CTR Potential
-    + 0.05 * Faceless Viability
+      0.25 × Demand Score
+    + 0.20 × (100 − Competition Score)
+    + 0.15 × Trend Momentum
+    + 0.15 × Virality Score
+    + 0.10 × CTR Potential
+    + 0.10 × Viral Opportunity Score
+    + 0.05 × Topic Velocity
     """
 
     def __init__(self) -> None:
@@ -46,6 +60,8 @@ class NicheRankingEngine:
                 - virality (ViralityMetrics)
                 - ctr (CTRMetrics)
                 - faceless (FacelessViability)
+                - viral_opportunity (ViralOpportunityResult | None)
+                - topic_velocity (TopicVelocityResult | None)
                 - keywords (list[str])
         """
         scores: list[NicheScore] = []
@@ -69,14 +85,22 @@ class NicheRankingEngine:
             faceless: FacelessViability | None = data.get("faceless")
             face_score = faceless.faceless_viability_score if faceless else 50.0
 
-            # Weighted composite
+            # New signals
+            viral_opp: ViralOpportunityResult | None = data.get("viral_opportunity")
+            viral_opp_score = viral_opp.viral_opportunity_score if viral_opp else 0.0
+
+            velocity: TopicVelocityResult | None = data.get("topic_velocity")
+            velocity_score = velocity.velocity_score if velocity else 0.0
+
+            # Weighted composite — new formula
             overall = (
                 demand * self.weights.demand
                 + comp_opportunity * self.weights.competition
                 + trend * self.weights.trend_momentum
                 + vir_score * self.weights.virality
                 + ctr_score * self.weights.ctr_potential
-                + face_score * self.weights.faceless_viability
+                + viral_opp_score * self.weights.viral_opportunity
+                + velocity_score * self.weights.topic_velocity
             )
 
             # Normalize to 0-100
@@ -90,6 +114,8 @@ class NicheRankingEngine:
                 virality_score=round(vir_score, 1),
                 ctr_potential=round(ctr_score, 1),
                 faceless_viability=round(face_score, 1),
+                viral_opportunity_score=round(viral_opp_score, 1),
+                topic_velocity_score=round(velocity_score, 1),
                 overall_score=round(overall, 1),
                 keywords=data.get("keywords", []),
             ))

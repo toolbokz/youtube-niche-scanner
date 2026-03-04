@@ -79,12 +79,13 @@ class AnalysisConfig(BaseModel):
 
 
 class RankingWeights(BaseModel):
-    demand: float = 0.30
-    competition: float = 0.25
+    demand: float = 0.25
+    competition: float = 0.20
     trend_momentum: float = 0.15
     virality: float = 0.15
     ctr_potential: float = 0.10
-    faceless_viability: float = 0.05
+    viral_opportunity: float = 0.10
+    topic_velocity: float = 0.05
 
 
 class RankingConfig(BaseModel):
@@ -177,7 +178,8 @@ _ENV_MAP: list[tuple[str, tuple[str, ...], type]] = [
     ("GS_WEIGHT_TREND_MOMENTUM",     ("ranking", "weights", "trend_momentum"),     float),
     ("GS_WEIGHT_VIRALITY",           ("ranking", "weights", "virality"),           float),
     ("GS_WEIGHT_CTR_POTENTIAL",      ("ranking", "weights", "ctr_potential"),      float),
-    ("GS_WEIGHT_FACELESS_VIABILITY", ("ranking", "weights", "faceless_viability"), float),
+    ("GS_WEIGHT_VIRAL_OPPORTUNITY",  ("ranking", "weights", "viral_opportunity"),  float),
+    ("GS_WEIGHT_TOPIC_VELOCITY",     ("ranking", "weights", "topic_velocity"),     float),
     # Reports
     ("GS_REPORTS_OUTPUT_DIRECTORY",  ("reports", "output_directory"),              str),
     ("GS_REPORTS_FORMAT",            ("reports", "format"),                        str),  # special: CSV

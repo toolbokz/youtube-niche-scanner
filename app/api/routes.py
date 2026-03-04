@@ -45,7 +45,17 @@ class AnalyzeResponse(BaseModel):
     top_niches: list[dict[str, Any]]
     channel_concepts: list[dict[str, Any]]
     video_blueprints: dict[str, list[dict[str, Any]]]
+    viral_opportunities: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    topic_velocities: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    thumbnail_patterns: dict[str, dict[str, Any]] = Field(default_factory=dict)
     metadata: dict[str, Any]
+
+
+class DiscoverRequest(BaseModel):
+    deep: bool = Field(default=False, description="Use deep discovery mode")
+    max_seeds: int = Field(default=20, ge=5, le=100, description="Max auto-discovered seeds")
+    top_n: int = Field(default=20, ge=1, le=50, description="Number of top niches to return")
+    videos_per_niche: int = Field(default=10, ge=1, le=30, description="Videos per niche")
 
 
 # ── Application Lifecycle ──────────────────────────────────────────────────────
@@ -156,10 +166,67 @@ def create_app() -> FastAPI:
                     k: [bp.model_dump(mode="json") for bp in v]
                     for k, v in report.video_blueprints.items()
                 },
+                viral_opportunities={
+                    k: [opp.model_dump(mode="json") for opp in v]
+                    for k, v in report.viral_opportunities.items()
+                },
+                topic_velocities={
+                    k: v.model_dump(mode="json")
+                    for k, v in report.topic_velocities.items()
+                },
+                thumbnail_patterns={
+                    k: v.model_dump(mode="json")
+                    for k, v in report.thumbnail_patterns.items()
+                },
                 metadata=report.metadata,
             )
         except Exception as e:
             logger.error("analyze_error", error=str(e))
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @app.post("/discover", response_model=AnalyzeResponse)
+    async def discover(request: DiscoverRequest) -> AnalyzeResponse:
+        """Automatic niche discovery — no seed keywords required.
+
+        Scans Google Trends, YouTube, Reddit, and autocomplete to find
+        trending topics automatically, then runs the full pipeline.
+        """
+        if _pipeline is None:
+            raise HTTPException(status_code=503, detail="Pipeline not initialized")
+
+        try:
+            report = await _pipeline.run_discovery_pipeline(
+                max_seeds=request.max_seeds,
+                deep=request.deep,
+                top_n=request.top_n,
+                videos_per_niche=request.videos_per_niche,
+            )
+
+            return AnalyzeResponse(
+                status="success",
+                seed_keywords=report.seed_keywords,
+                top_niches=[n.model_dump(mode="json") for n in report.top_niches],
+                channel_concepts=[c.model_dump(mode="json") for c in report.channel_concepts],
+                video_blueprints={
+                    k: [bp.model_dump(mode="json") for bp in v]
+                    for k, v in report.video_blueprints.items()
+                },
+                viral_opportunities={
+                    k: [opp.model_dump(mode="json") for opp in v]
+                    for k, v in report.viral_opportunities.items()
+                },
+                topic_velocities={
+                    k: v.model_dump(mode="json")
+                    for k, v in report.topic_velocities.items()
+                },
+                thumbnail_patterns={
+                    k: v.model_dump(mode="json")
+                    for k, v in report.thumbnail_patterns.items()
+                },
+                metadata=report.metadata,
+            )
+        except Exception as e:
+            logger.error("discover_error", error=str(e))
             raise HTTPException(status_code=500, detail=str(e))
 
     @app.get("/niches")

@@ -9,14 +9,14 @@ def test_default_settings() -> None:
     settings = load_settings("/nonexistent/path.yaml")
     assert settings.app.name == "Growth Strategist"
     assert settings.database.url == "sqlite:///data/db/growth_strategist.db"
-    assert settings.ranking.weights.demand == 0.30
+    assert settings.ranking.weights.demand == 0.25
     reset_settings()
 
 
 def test_settings_weights_sum() -> None:
     settings = Settings()
     w = settings.ranking.weights
-    total = w.demand + w.competition + w.trend_momentum + w.virality + w.ctr_potential + w.faceless_viability
+    total = w.demand + w.competition + w.trend_momentum + w.virality + w.ctr_potential + w.viral_opportunity + w.topic_velocity
     assert abs(total - 1.0) < 0.001
 
 
