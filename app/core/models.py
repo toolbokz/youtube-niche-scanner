@@ -266,6 +266,7 @@ class NicheReport(BaseModel):
     viral_opportunities: dict[str, list["ViralOpportunity"]] = Field(default_factory=dict)
     topic_velocities: dict[str, "TopicVelocityResult"] = Field(default_factory=dict)
     thumbnail_patterns: dict[str, "ThumbnailPatternResult"] = Field(default_factory=dict)
+    ai_insights: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

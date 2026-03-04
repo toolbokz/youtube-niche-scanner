@@ -196,6 +196,52 @@ def build_niche_panel(
 
     children = [header, badges, radar]
 
+    # ── AI Insights ───────────────────────────────────────────────────
+    ai = report_data.get("ai_insights", {})
+    if ai and "error" not in ai:
+        ai_parts = []
+
+        # Quick overall recommendation
+        na = ai.get("niche_analysis", {})
+        if isinstance(na, dict):
+            rec = na.get("overall_recommendation", "")
+            if rec:
+                ai_parts.append(html.P(rec[:300], style={
+                    "fontSize": "11px", "color": TEXT_PRIMARY,
+                    "fontStyle": "italic", "lineHeight": "1.5",
+                }))
+
+            # Growth potential for this niche
+            growth = na.get("growth_potential", [])
+            for item in growth:
+                if isinstance(item, dict) and item.get("niche", "").lower() == niche_name.lower():
+                    ai_parts.append(html.Div([
+                        html.Span("Growth: ", style={"color": ACCENT_GREEN, "fontSize": "11px", "fontWeight": "600"}),
+                        html.Span(item.get("assessment", "")[:150], style={"color": TEXT_SECONDARY, "fontSize": "11px"}),
+                    ], style={"marginBottom": "4px"}))
+
+            # Content strategy for this niche
+            strategy = na.get("content_strategy_insights", [])
+            for item in strategy:
+                if isinstance(item, dict) and item.get("niche", "").lower() == niche_name.lower():
+                    ai_parts.append(html.Div([
+                        html.Span("Strategy: ", style={"color": ACCENT_BLUE, "fontSize": "11px", "fontWeight": "600"}),
+                        html.Span(item.get("strategy", "")[:150], style={"color": TEXT_SECONDARY, "fontSize": "11px"}),
+                    ], style={"marginBottom": "4px"}))
+
+        # Trend forecast snippet
+        tf = ai.get("trend_forecast", {})
+        if isinstance(tf, dict):
+            direction = tf.get("overall_market_direction", "")
+            if direction:
+                ai_parts.append(html.Div([
+                    html.Span("Market: ", style={"color": ACCENT_PURPLE, "fontSize": "11px", "fontWeight": "600"}),
+                    html.Span(direction[:150], style={"color": TEXT_SECONDARY, "fontSize": "11px"}),
+                ], style={"marginBottom": "4px"}))
+
+        if ai_parts:
+            children.append(_section("🧠 AI Insights", html.Div(ai_parts)))
+
     # ── Keywords ──────────────────────────────────────────────────────
     keywords = node_data.get("keywords", [])
     if keywords:

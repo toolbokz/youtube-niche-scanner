@@ -77,3 +77,35 @@ class APIClient:
                 return r.json()
         except Exception as exc:
             return {"error": str(exc)}
+
+    # ── AI endpoints ──────────────────────────────────────────────────
+
+    def ai_niche_insights(self, top_n: int = 5) -> dict[str, Any]:
+        """GET /ai/niche-insights — AI niche analysis."""
+        try:
+            with httpx.Client(timeout=_TIMEOUT) as c:
+                r = c.get(self._url("/ai/niche-insights"), params={"top_n": top_n})
+                r.raise_for_status()
+                return r.json()
+        except Exception as exc:
+            return {"error": str(exc)}
+
+    def ai_video_strategy(self, niche: str, count: int = 15) -> dict[str, Any]:
+        """GET /ai/video-strategy — AI video strategy for a niche."""
+        try:
+            with httpx.Client(timeout=_TIMEOUT) as c:
+                r = c.get(self._url("/ai/video-strategy"), params={"niche": niche, "count": count})
+                r.raise_for_status()
+                return r.json()
+        except Exception as exc:
+            return {"error": str(exc)}
+
+    def ai_trend_forecast(self) -> dict[str, Any]:
+        """GET /ai/trend-forecast — AI trend forecasting."""
+        try:
+            with httpx.Client(timeout=_TIMEOUT) as c:
+                r = c.get(self._url("/ai/trend-forecast"))
+                r.raise_for_status()
+                return r.json()
+        except Exception as exc:
+            return {"error": str(exc)}

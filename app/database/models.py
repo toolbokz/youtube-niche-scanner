@@ -129,6 +129,22 @@ class AnalysisRun(Base):
     run_metadata = Column("metadata", JSON, default=dict)
 
 
+class AIInsightRecord(Base):
+    """Cached AI (Gemini) analysis results keyed by type + niche."""
+    __tablename__ = "ai_insights"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    cache_key = Column(String(64), nullable=False, index=True)
+    niche = Column(String(500), nullable=False, index=True)
+    analysis_type = Column(String(100), nullable=False, index=True)
+    response = Column(JSON, default=dict)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_ai_cache_lookup", "cache_key", "created_at"),
+    )
+
+
 # ── Engine / Session ───────────────────────────────────────────────────────────
 
 _engine = None

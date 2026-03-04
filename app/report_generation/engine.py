@@ -39,6 +39,7 @@ class ReportGenerationEngine:
         viral_opportunities: dict[str, list[ViralOpportunity]] | None = None,
         topic_velocities: dict[str, TopicVelocityResult] | None = None,
         thumbnail_patterns: dict[str, ThumbnailPatternResult] | None = None,
+        ai_insights: dict[str, Any] | None = None,
     ) -> NicheReport:
         """Build the complete report model."""
         report = NicheReport(
@@ -49,6 +50,7 @@ class ReportGenerationEngine:
             viral_opportunities=viral_opportunities or {},
             topic_velocities=topic_velocities or {},
             thumbnail_patterns=thumbnail_patterns or {},
+            ai_insights=ai_insights or {},
             metadata=metadata or {},
         )
         return report
@@ -268,6 +270,127 @@ class ReportGenerationEngine:
                         lines.append(f"- {rec}")
                 lines.append("")
             lines.append("")
+
+        # ── AI-Powered Insights ──
+        if report.ai_insights and "error" not in report.ai_insights:
+            lines.append("## 🧠 AI-Powered Insights (Gemini)")
+            lines.append("")
+
+            # Niche analysis
+            na = report.ai_insights.get("niche_analysis", {})
+            if na and "error" not in na:
+                lines.append("### AI Niche Analysis")
+                rec = na.get("overall_recommendation", "")
+                if rec:
+                    lines.append(f"\n{rec}\n")
+
+                growth = na.get("growth_potential", [])
+                if growth:
+                    lines.append("**Growth Potential:**\n")
+                    for item in growth[:5]:
+                        if isinstance(item, dict):
+                            lines.append(f"- **{item.get('niche', '?')}**: {item.get('assessment', '')}")
+                        else:
+                            lines.append(f"- {item}")
+                    lines.append("")
+
+                strategy = na.get("content_strategy_insights", [])
+                if strategy:
+                    lines.append("**Content Strategy Insights:**\n")
+                    for item in strategy[:5]:
+                        if isinstance(item, dict):
+                            lines.append(f"- **{item.get('niche', '?')}**: {item.get('strategy', '')}")
+                        else:
+                            lines.append(f"- {item}")
+                    lines.append("")
+
+            # Trend forecast
+            tf = report.ai_insights.get("trend_forecast", {})
+            if tf and "error" not in tf:
+                lines.append("### AI Trend Forecast")
+                direction = tf.get("overall_market_direction", "")
+                if direction:
+                    lines.append(f"\n**Market Direction:** {direction}\n")
+
+                forecasts = tf.get("trend_forecast", [])
+                if forecasts:
+                    for fc in forecasts[:5]:
+                        if isinstance(fc, dict):
+                            lines.append(
+                                f"- **{fc.get('topic', '?')}** — "
+                                f"Explosion likelihood: {fc.get('explosion_likelihood', '?')}, "
+                                f"Peak: {fc.get('predicted_peak_timeframe', '?')}. "
+                                f"{fc.get('reasoning', '')}"
+                            )
+                    lines.append("")
+
+                subtopics = tf.get("emerging_subtopics", [])
+                if subtopics:
+                    lines.append("**Emerging Subtopics:**")
+                    for st in subtopics[:8]:
+                        lines.append(f"- {st}")
+                    lines.append("")
+
+            # Video strategy
+            vs = report.ai_insights.get("video_strategy", {})
+            if vs and "error" not in vs:
+                ideas = vs.get("video_ideas", [])
+                if ideas:
+                    lines.append("### AI Video Strategy Ideas")
+                    lines.append("")
+                    for i, idea in enumerate(ideas[:10], 1):
+                        if isinstance(idea, dict):
+                            lines.append(f"**{i}. {idea.get('title', 'Untitled')}**")
+                            lines.append(f"   Concept: {idea.get('concept', '')}")
+                            lines.append(f"   Audience Hook: {idea.get('audience_hook', '')}")
+                            lines.append("")
+                    lines.append("")
+
+            # Thumbnail strategy
+            ts = report.ai_insights.get("thumbnail_strategy", {})
+            if ts and "error" not in ts:
+                lines.append("### AI Thumbnail Strategy")
+                overall = ts.get("overall_recommendation", "")
+                if overall:
+                    lines.append(f"\n{overall}\n")
+
+                color_strat = ts.get("color_strategy", {})
+                if isinstance(color_strat, dict) and color_strat:
+                    lines.append(
+                        f"**Colors:** {', '.join(color_strat.get('primary_colors', []))} "
+                        f"+ accent {color_strat.get('accent_color', '?')}"
+                    )
+                    lines.append(f"**Approach:** {color_strat.get('background_approach', '')}")
+                    lines.append("")
+
+                text_strat = ts.get("text_overlay", {})
+                if isinstance(text_strat, dict) and text_strat:
+                    lines.append(
+                        f"**Text Overlay:** {'Recommended' if text_strat.get('recommended') else 'Optional'} "
+                        f"— max {text_strat.get('max_words', '?')} words, "
+                        f"{text_strat.get('font_style', '')} at {text_strat.get('placement', '')}"
+                    )
+                    lines.append("")
+
+            # Viral interpretations
+            vi = report.ai_insights.get("viral_interpretations", {})
+            if vi:
+                lines.append("### AI Viral Opportunity Interpretation")
+                lines.append("")
+                for niche_name_vi, interp in vi.items():
+                    if isinstance(interp, dict) and "error" not in interp:
+                        lines.append(f"**{niche_name_vi}:**")
+                        themes = interp.get("common_themes", [])
+                        if themes:
+                            lines.append(f"- Themes: {', '.join(str(t) for t in themes[:5])}")
+                        factors = interp.get("success_factors", [])
+                        if factors:
+                            lines.append(f"- Success factors: {', '.join(str(f) for f in factors[:5])}")
+                        timing = interp.get("timing_insight", "")
+                        if timing:
+                            lines.append(f"- Timing: {timing}")
+                        lines.append("")
+                lines.append("")
 
         # ── Channel Concepts ──
         lines.append("## Channel Concepts")

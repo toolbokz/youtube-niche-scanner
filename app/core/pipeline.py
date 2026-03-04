@@ -206,6 +206,35 @@ class PipelineOrchestrator:
         top_niches = self.ranking_engine.get_top_niches(niche_data, top_n)
         logger.info("top_niches_ranked", count=len(top_niches))
 
+        # ── Step 8b: Optional AI Enhancement ──
+        ai_insights: dict[str, Any] = {}
+        try:
+            from app.config import get_settings as _gs
+            if _gs().vertex_ai.enabled:
+                from app.ai.service import run_full_ai_analysis
+
+                # Build a temporary report-like dict for the AI service
+                _tmp_report = {
+                    "top_niches": [n.model_dump(mode="json") for n in top_niches],
+                    "viral_opportunities": {
+                        k: [o.model_dump(mode="json") for o in v]
+                        for k, v in all_viral_opportunities.items()
+                    },
+                    "topic_velocities": {
+                        k: v.model_dump(mode="json")
+                        for k, v in all_topic_velocities.items()
+                    },
+                    "thumbnail_patterns": {
+                        k: v.model_dump(mode="json")
+                        for k, v in all_thumbnail_patterns.items()
+                    },
+                }
+                logger.info("step_8b_ai_enhancement")
+                ai_insights = await run_full_ai_analysis(_tmp_report)
+                logger.info("ai_enhancement_complete", sections=list(ai_insights.keys()))
+        except Exception as exc:
+            logger.warning("ai_enhancement_skipped", error=str(exc))
+
         # ── Step 9-10: Strategy & Blueprint Generation ──
         logger.info("step_9_10_strategy_generation")
         channel_concepts = []
@@ -242,6 +271,7 @@ class PipelineOrchestrator:
             viral_opportunities=all_viral_opportunities,
             topic_velocities=all_topic_velocities,
             thumbnail_patterns=all_thumbnail_patterns,
+            ai_insights=ai_insights,
             metadata={
                 "total_keywords_analyzed": len(all_keywords),
                 "total_clusters": len(clusters),
@@ -251,6 +281,7 @@ class PipelineOrchestrator:
                 ),
                 "niches_with_velocity_data": len(all_topic_velocities),
                 "niches_with_thumbnail_analysis": len(all_thumbnail_patterns),
+                "ai_enhanced": bool(ai_insights and "error" not in ai_insights),
             },
         )
 

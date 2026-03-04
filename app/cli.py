@@ -285,6 +285,156 @@ def clear_cache() -> None:
     console.print(f"[green]Cleared {count} cache entries.[/green]")
 
 
+@cli.command("ai-analyze")
+@click.option("--top-n", "-n", default=5, help="Number of top niches to send to AI")
+def ai_analyze(top_n: int) -> None:
+    """Run AI analysis (Gemini) on the latest report.
+
+    Requires:
+        - GOOGLE_APPLICATION_CREDENTIALS set
+        - GOOGLE_CLOUD_PROJECT set
+        - GS_VERTEX_AI_ENABLED=true (or vertex_ai.enabled in config.yaml)
+
+    This loads the most recent JSON report from data/reports/
+    and sends the top niches to Gemini for enhanced analysis.
+
+    Examples:
+        python main.py ai-analyze
+        python main.py ai-analyze --top-n 3
+    """
+    console.print(Panel(
+        f"[bold cyan]AI Analysis[/bold cyan] (Gemini)\n\n"
+        f"Top niches to analyse: [yellow]{top_n}[/yellow]\n"
+        f"[dim]Loading latest report from data/reports/[/dim]",
+        title="🧠 AI-Powered Analysis",
+        border_style="cyan",
+    ))
+
+    asyncio.run(_run_ai_analyze(top_n))
+
+
+async def _run_ai_analyze(top_n: int) -> None:
+    """Execute AI analysis on the latest report."""
+    import json as _json
+    from pathlib import Path
+    from app.database import init_db
+    from app.ai.service import run_full_ai_analysis
+    from app.ai.client import get_ai_client
+
+    await init_db()
+
+    # Check AI availability
+    client = get_ai_client()
+    if not client.available:
+        console.print(
+            "[red]Error:[/red] Vertex AI is not configured.\n"
+            "Set GOOGLE_APPLICATION_CREDENTIALS and GOOGLE_CLOUD_PROJECT environment variables."
+        )
+        sys.exit(1)
+
+    # Load latest report
+    settings = get_settings()
+    report_dir = Path(settings.reports.output_directory)
+    json_files = sorted(report_dir.glob("*.json"), reverse=True)
+
+    if not json_files:
+        console.print("[red]Error:[/red] No report files found in data/reports/. Run analyze first.")
+        sys.exit(1)
+
+    console.print(f"[dim]Loading: {json_files[0].name}[/dim]")
+    with open(json_files[0]) as f:
+        report_data = _json.load(f)
+
+    # Trim to requested top_n
+    if report_data.get("top_niches"):
+        report_data["top_niches"] = report_data["top_niches"][:top_n]
+
+    try:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Running AI analysis…", total=None)
+            results = await run_full_ai_analysis(report_data)
+            progress.update(task, description="[green]AI analysis complete!")
+
+        if "error" in results:
+            console.print(f"[red]Error:[/red] {results['error']}")
+            sys.exit(1)
+
+        _display_ai_results(results)
+
+        # Save AI-enhanced report
+        ai_report_path = report_dir / f"ai_insights_{json_files[0].stem}.json"
+        with open(ai_report_path, "w") as f:
+            _json.dump(results, f, indent=2, default=str)
+        console.print(f"\n[bold]📄 AI insights saved to: {ai_report_path}[/bold]")
+
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        logger.error("ai_analyze_error", error=str(e))
+        sys.exit(1)
+
+
+def _display_ai_results(results: dict) -> None:
+    """Display AI analysis results in the terminal."""
+    # Niche analysis
+    na = results.get("niche_analysis", {})
+    if na and "error" not in na:
+        console.print("\n[bold cyan]🧠 AI Niche Analysis:[/bold cyan]")
+        rec = na.get("overall_recommendation", "")
+        if rec:
+            console.print(f"  {rec[:200]}")
+        growth = na.get("growth_potential", [])
+        for item in growth[:5]:
+            if isinstance(item, dict):
+                console.print(f"  • [yellow]{item.get('niche', '?')}[/yellow]: {item.get('assessment', '')[:100]}")
+
+    # Trend forecast
+    tf = results.get("trend_forecast", {})
+    if tf and "error" not in tf:
+        console.print("\n[bold purple]📈 AI Trend Forecast:[/bold purple]")
+        direction = tf.get("overall_market_direction", "")
+        if direction:
+            console.print(f"  Market direction: {direction[:150]}")
+        for fc in tf.get("trend_forecast", [])[:5]:
+            if isinstance(fc, dict):
+                console.print(
+                    f"  • [yellow]{fc.get('topic', '?')}[/yellow] — "
+                    f"Explosion: {fc.get('explosion_likelihood', '?')}, "
+                    f"Peak: {fc.get('predicted_peak_timeframe', '?')}"
+                )
+
+    # Video strategy
+    vs = results.get("video_strategy", {})
+    if vs and "error" not in vs:
+        ideas = vs.get("video_ideas", [])
+        if ideas:
+            console.print(f"\n[bold green]🎬 AI Video Strategy ({len(ideas)} ideas):[/bold green]")
+            for i, idea in enumerate(ideas[:5], 1):
+                if isinstance(idea, dict):
+                    console.print(f"  {i}. [yellow]{idea.get('title', '?')}[/yellow]")
+                    console.print(f"     {idea.get('concept', '')[:100]}")
+
+    # Thumbnail strategy
+    ts = results.get("thumbnail_strategy", {})
+    if ts and "error" not in ts:
+        console.print("\n[bold magenta]🎨 AI Thumbnail Strategy:[/bold magenta]")
+        overall = ts.get("overall_recommendation", "")
+        if overall:
+            console.print(f"  {overall[:200]}")
+
+    # Viral interpretations
+    vi = results.get("viral_interpretations", {})
+    if vi:
+        console.print("\n[bold red]🔥 AI Viral Interpretation:[/bold red]")
+        for niche_name, interp in vi.items():
+            if isinstance(interp, dict) and "error" not in interp:
+                themes = interp.get("common_themes", [])
+                console.print(f"  • [yellow]{niche_name}[/yellow]: {', '.join(str(t) for t in themes[:3])}")
+
+
 @cli.command()
 @click.option("--host", default=None, help="Server host (default: from config)")
 @click.option("--port", default=None, type=int, help="Server port (default: from config)")

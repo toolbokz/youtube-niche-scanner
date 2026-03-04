@@ -97,6 +97,14 @@ class ReportsConfig(BaseModel):
     format: list[str] = Field(default_factory=lambda: ["json", "markdown"])
 
 
+class VertexAIConfig(BaseModel):
+    """Google Vertex AI / Gemini configuration."""
+    enabled: bool = False
+    project: str = ""
+    region: str = "us-central1"
+    cache_ttl_hours: int = 24
+
+
 class AppConfig(BaseModel):
     name: str = "Growth Strategist"
     version: str = "1.0.0"
@@ -116,6 +124,7 @@ class Settings(BaseModel):
     analysis: AnalysisConfig = AnalysisConfig()
     ranking: RankingConfig = RankingConfig()
     reports: ReportsConfig = ReportsConfig()
+    vertex_ai: VertexAIConfig = VertexAIConfig()
 
     @property
     def is_production(self) -> bool:
@@ -183,6 +192,11 @@ _ENV_MAP: list[tuple[str, tuple[str, ...], type]] = [
     # Reports
     ("GS_REPORTS_OUTPUT_DIRECTORY",  ("reports", "output_directory"),              str),
     ("GS_REPORTS_FORMAT",            ("reports", "format"),                        str),  # special: CSV
+    # Vertex AI (Gemini)
+    ("GS_VERTEX_AI_ENABLED",         ("vertex_ai", "enabled"),                    bool),
+    ("GS_VERTEX_AI_PROJECT",         ("vertex_ai", "project"),                    str),
+    ("GS_VERTEX_AI_REGION",          ("vertex_ai", "region"),                     str),
+    ("GS_VERTEX_AI_CACHE_TTL_HOURS", ("vertex_ai", "cache_ttl_hours"),            int),
 ]
 
 

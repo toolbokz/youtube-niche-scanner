@@ -49,6 +49,7 @@ class AnalyzeResponse(BaseModel):
     viral_opportunities: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
     topic_velocities: dict[str, dict[str, Any]] = Field(default_factory=dict)
     thumbnail_patterns: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    ai_insights: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any]
 
 
@@ -184,6 +185,7 @@ def create_app() -> FastAPI:
                     k: v.model_dump(mode="json")
                     for k, v in report.thumbnail_patterns.items()
                 },
+                ai_insights=report.ai_insights,
                 metadata=report.metadata,
             )
         except Exception as e:
@@ -229,6 +231,7 @@ def create_app() -> FastAPI:
                     k: v.model_dump(mode="json")
                     for k, v in report.thumbnail_patterns.items()
                 },
+                ai_insights=report.ai_insights,
                 metadata=report.metadata,
             )
         except Exception as e:
@@ -262,7 +265,97 @@ def create_app() -> FastAPI:
         cache = get_cache()
         return cache.stats()
 
+    # ── AI-powered analysis endpoints ──────────────────────────────────
+
+    @app.get("/ai/niche-insights")
+    async def ai_niche_insights(
+        top_n: int = Query(default=5, ge=1, le=20, description="Number of top niches to analyze"),
+    ) -> dict[str, Any]:
+        """Get AI-powered niche insights using Gemini.
+
+        Requires a prior /analyze or /discover run so report data is available.
+        """
+        from app.ai.service import analyze_niches
+        if _pipeline is None:
+            raise HTTPException(status_code=503, detail="Pipeline not initialized")
+
+        # Use the latest report from the report engine
+        report_dir = Path(get_settings().reports.output_directory)
+        latest = _latest_report_json(report_dir)
+        if latest is None:
+            raise HTTPException(status_code=404, detail="No analysis report found. Run /analyze first.")
+
+        niches = latest.get("top_niches", [])[:top_n]
+        if not niches:
+            raise HTTPException(status_code=404, detail="No niches in the latest report")
+
+        result = await analyze_niches(niches)
+        if "error" in result:
+            raise HTTPException(status_code=503, detail=result["error"])
+        return {"status": "success", "niche_insights": result}
+
+    @app.get("/ai/video-strategy")
+    async def ai_video_strategy(
+        niche: str = Query(..., description="Niche name to generate strategy for"),
+        count: int = Query(default=15, ge=1, le=30, description="Number of video ideas"),
+    ) -> dict[str, Any]:
+        """Generate AI video strategy ideas for a niche."""
+        from app.ai.service import generate_video_strategy
+
+        report_dir = Path(get_settings().reports.output_directory)
+        latest = _latest_report_json(report_dir)
+
+        keywords: list[str] = []
+        if latest:
+            for n in latest.get("top_niches", []):
+                if n.get("niche", "").lower() == niche.lower():
+                    keywords = n.get("keywords", [])
+                    break
+
+        result = await generate_video_strategy(niche, keywords, count=count)
+        if "error" in result:
+            raise HTTPException(status_code=503, detail=result["error"])
+        return {"status": "success", "video_strategy": result}
+
+    @app.get("/ai/trend-forecast")
+    async def ai_trend_forecast() -> dict[str, Any]:
+        """Forecast trends using AI based on topic velocity data."""
+        from app.ai.service import forecast_trends
+
+        report_dir = Path(get_settings().reports.output_directory)
+        latest = _latest_report_json(report_dir)
+        if latest is None:
+            raise HTTPException(status_code=404, detail="No analysis report found. Run /analyze first.")
+
+        velocities = latest.get("topic_velocities", {})
+        if not velocities:
+            raise HTTPException(status_code=404, detail="No velocity data in the latest report")
+
+        niches = latest.get("top_niches", [])[:5]
+        result = await forecast_trends(velocities, niches)
+        if "error" in result:
+            raise HTTPException(status_code=503, detail=result["error"])
+        return {"status": "success", "trend_forecast": result}
+
     return app
+
+
+def _latest_report_json(report_dir: Path) -> dict[str, Any] | None:
+    """Load the most recent JSON report file."""
+    import json as _json
+
+    if not report_dir.is_dir():
+        return None
+
+    json_files = sorted(report_dir.glob("*.json"), reverse=True)
+    if not json_files:
+        return None
+
+    try:
+        with open(json_files[0]) as f:
+            return _json.load(f)  # type: ignore[no-any-return]
+    except Exception:
+        return None
 
 
 app = create_app()
