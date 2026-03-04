@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Growth Strategist — YouTube Niche Discovery</title>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="/static/css/style.css">
+
+    <!-- Favicon (inline SVG data URI) -->
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>">
+</head>
+
+<body>
+    <!-- ═══ HEADER ═══ -->
+    <header class="app-header">
+        <div class="header-inner">
+            <div class="logo">
+                <div class="logo-icon">📈</div>
+                <span>Growth <span class="text-gradient">Strategist</span></span>
+            </div>
+            <nav class="nav-links">
+                <button class="nav-link active" data-page="discover">Discover</button>
+                <button class="nav-link" data-page="results">Results</button>
+            </nav>
+            <div class="header-actions">
+                <div class="status-badge">
+                    <span class="status-dot" id="healthDot"></span>
+                    <span id="healthText">Connecting…</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- ═══ MAIN CONTENT ═══ -->
+    <main class="app-container">
+
+        <!-- ─── DISCOVER PAGE ─── -->
+        <section class="page-section active" id="page-discover">
+
+            <div class="hero">
+                <h1>Discover Your Next <span class="text-gradient">Winning Niche</span></h1>
+                <p>Enter seed keywords and let the engine analyze trends, competition, virality, and faceless viability
+                    to find the most profitable YouTube niches.</p>
+            </div>
+
+            <!-- Search Panel -->
+            <div class="search-panel">
+                <div class="search-box">
+                    <input type="text" class="search-input" id="keywordInput"
+                        placeholder="Type a keyword and press Enter…" autocomplete="off">
+                    <button class="search-btn" id="analyzeBtn" disabled>
+                        <span id="analyzeBtnIcon">⚡</span>
+                        <span id="analyzeBtnText">Analyze</span>
+                    </button>
+                </div>
+
+                <!-- Seed Tags -->
+                <div class="seed-tags" id="seedTags"></div>
+
+                <!-- Examples -->
+                <div class="examples-hint">
+                    Try:
+                    <span class="example-chip" data-kw="ai tools">ai tools</span> ·
+                    <span class="example-chip" data-kw="passive income">passive income</span> ·
+                    <span class="example-chip" data-kw="health tips">health tips</span> ·
+                    <span class="example-chip" data-kw="personal finance">personal finance</span> ·
+                    <span class="example-chip" data-kw="crypto investing">crypto investing</span>
+                </div>
+
+                <!-- Options -->
+                <div class="search-options">
+                    <div class="option-group">
+                        <label for="topN">Top niches</label>
+                        <select id="topN">
+                            <option value="5">5</option>
+                            <option value="10" selected>10</option>
+                            <option value="15">15</option>
+                            <option value="20">20</option>
+                        </select>
+                    </div>
+                    <div class="option-group">
+                        <label for="videosPerNiche">Videos / niche</label>
+                        <select id="videosPerNiche">
+                            <option value="5">5</option>
+                            <option value="10" selected>10</option>
+                            <option value="15">15</option>
+                            <option value="20">20</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pipeline Progress -->
+            <div class="pipeline-progress" id="pipelineProgress">
+                <div class="progress-header">
+                    <div class="progress-title">
+                        <span class="step-spinner"></span>
+                        <span id="progressLabel">Running pipeline…</span>
+                    </div>
+                    <span class="progress-time" id="progressTimer">0:00</span>
+                </div>
+                <div class="progress-bar-track">
+                    <div class="progress-bar-fill" id="progressBar"></div>
+                </div>
+                <div class="progress-steps" id="progressSteps"></div>
+            </div>
+
+            <!-- Error Banner -->
+            <div class="error-banner hidden" id="errorBanner">
+                <span>⚠</span>
+                <span id="errorText"></span>
+            </div>
+
+        </section>
+
+        <!-- ─── RESULTS PAGE ─── -->
+        <section class="page-section" id="page-results">
+            <div class="results-section">
+
+                <!-- Results Header -->
+                <div class="results-header">
+                    <div>
+                        <h2>Analysis <span class="text-gradient">Results</span></h2>
+                        <p style="color:var(--text-muted);font-size:0.88rem;margin-top:0.25rem;" id="resultsSubtitle">
+                        </p>
+                    </div>
+                    <div class="results-meta" id="resultsMeta"></div>
+                </div>
+
+                <!-- Stat Cards -->
+                <div class="stat-cards" id="statCards"></div>
+
+                <!-- Score Distribution Chart -->
+                <div class="chart-container" id="chartSection">
+                    <h3>📊 Niche Score Distribution</h3>
+                    <div class="chart-canvas-wrap">
+                        <canvas id="scoreChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Niche Table -->
+                <div class="table-wrapper" id="tableSection">
+                    <div class="table-header">
+                        <h3>🏆 Niche Rankings</h3>
+                    </div>
+                    <div style="overflow-x:auto;">
+                        <table class="niche-table">
+                            <thead>
+                                <tr>
+                                    <th style="width:50px">#</th>
+                                    <th>Niche</th>
+                                    <th>Score</th>
+                                    <th>Demand</th>
+                                    <th>Competition</th>
+                                    <th>Trend</th>
+                                    <th>Virality</th>
+                                    <th>CTR</th>
+                                    <th>Faceless</th>
+                                </tr>
+                            </thead>
+                            <tbody id="nicheTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+    </main>
+
+    <!-- ═══ NICHE DETAIL DRAWER ═══ -->
+    <div class="niche-drawer-overlay" id="drawerOverlay"></div>
+    <aside class="niche-drawer" id="nicheDrawer">
+        <div class="drawer-header">
+            <h3 id="drawerTitle">Niche Details</h3>
+            <button class="drawer-close" id="drawerClose">✕</button>
+        </div>
+        <div class="drawer-body" id="drawerBody"></div>
+    </aside>
+
+    <!-- ═══ TOAST CONTAINER ═══ -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- App Script -->
+    <script src="/static/js/app.js"></script>
+</body>
+
+</html>

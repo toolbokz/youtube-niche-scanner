@@ -1,0 +1,15 @@
+[project]
+name = "growth-strategist"
+version = "1.0.0"
+description = "YouTube Niche Discovery & Faceless Video Strategy Platform"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true

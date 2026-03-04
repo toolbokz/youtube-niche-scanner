@@ -1,0 +1,83 @@
+# Growth Strategist - YouTube Niche Discovery Platform
+# Configuration File
+
+app:
+  name: "Growth Strategist"
+  version: "1.0.0"
+  environment: "development"
+  debug: true
+  log_level: "INFO"
+
+database:
+  url: "sqlite:///data/db/growth_strategist.db"
+  echo: false
+  pool_size: 5
+
+cache:
+  enabled: true
+  directory: "data/cache"
+  ttl_hours: 24
+  max_size_mb: 500
+
+api:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 4
+
+connectors:
+  youtube_autocomplete:
+    enabled: true
+    rate_limit_per_second: 2
+    timeout_seconds: 10
+    max_retries: 3
+    cache_ttl_hours: 12
+
+  youtube_search:
+    enabled: true
+    rate_limit_per_second: 1
+    timeout_seconds: 15
+    max_retries: 3
+    cache_ttl_hours: 6
+
+  google_trends:
+    enabled: true
+    rate_limit_per_second: 1
+    timeout_seconds: 20
+    max_retries: 3
+    cache_ttl_hours: 12
+
+  reddit:
+    enabled: true
+    rate_limit_per_second: 1
+    timeout_seconds: 15
+    max_retries: 3
+    cache_ttl_hours: 6
+
+  youtube_data_api:
+    enabled: false
+    api_key: ""
+    rate_limit_per_second: 5
+    timeout_seconds: 10
+    max_retries: 3
+    cache_ttl_hours: 24
+
+analysis:
+  max_keywords_per_batch: 500
+  top_niches_count: 20
+  videos_per_niche: 10
+  competition_sample_size: 20
+
+ranking:
+  weights:
+    demand: 0.30
+    competition: 0.25
+    trend_momentum: 0.15
+    virality: 0.15
+    ctr_potential: 0.10
+    faceless_viability: 0.05
+
+reports:
+  output_directory: "data/reports"
+  format:
+    - "json"
+    - "markdown"
