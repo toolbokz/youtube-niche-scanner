@@ -1,4 +1,6 @@
 // ── API Types ─────────────────────────────────────────────────────────────────
+// These types mirror the Pydantic model_dump(mode="json") output from the
+// Python backend (app/core/models.py).  Keep them in sync.
 
 export interface HealthResponse {
     status: string;
@@ -20,112 +22,167 @@ export interface NicheScore {
     rank: number;
 }
 
-export interface ChannelConcept {
-    niche: string;
-    positioning: string;
-    target_audience: string;
-    posting_cadence: string;
-    estimated_rpm: number;
-    time_to_monetization_months: number;
-    audience_persona?: AudiencePersona;
-}
+// ── Channel & Audience ────────────────────────────────────────────────────────
 
 export interface AudiencePersona {
     age_range: string;
     interests: string[];
     pain_points: string[];
-    platforms: string[];
+    content_preferences: string[];
 }
 
-export interface VideoBlueprint {
+export interface ChannelConcept {
+    niche: string;
+    channel_name_ideas: string[];
+    positioning: string;
+    audience: AudiencePersona | null;
+    posting_cadence: string;
+    estimated_rpm: number;
+    time_to_monetization_months: number;
+}
+
+// ── Video Blueprint (deeply nested) ──────────────────────────────────────────
+
+export interface VideoIdea {
     title: string;
     topic: string;
     angle: string;
     target_keywords: string[];
-    ctr_score: number;
-    thumbnail_concept?: ThumbnailConcept;
-    script_structure?: ScriptStructure;
-    production_plan?: ProductionPlan;
-    seo_description?: string;
-    monetization_strategy?: MonetizationStrategy;
+    estimated_views: string;
+    difficulty: string;
 }
 
 export interface ThumbnailConcept {
-    style: string;
-    primary_color: string;
+    emotion_trigger: string;
+    contrast_strategy: string;
+    visual_focal_point: string;
     text_overlay: string;
-    emotion: string;
-    contrast_level: string;
+    color_palette: string[];
+    layout_concept: string;
 }
 
 export interface ScriptStructure {
     hook: string;
-    intro: string;
-    sections: string[];
-    cta: string;
-    outro: string;
+    retention_pattern_interrupt: string;
+    story_progression: string;
+    mid_video_curiosity_loop: string;
+    final_payoff: string;
+    cta_placement: string;
 }
 
 export interface ProductionPlan {
-    format: string;
-    estimated_duration_minutes: number;
-    equipment_needed: string[];
-    editing_complexity: string;
+    stock_footage_sources: string[];
+    motion_graphics_ideas: string[];
+    animation_suggestions: string[];
+    on_screen_text_strategies: string[];
+    editing_rhythm: string;
+}
+
+export interface LowCostProduction {
+    stock_footage_libraries: string[];
+    creative_commons_sources: string[];
+    public_domain_sources: string[];
+    ai_voiceover_tools: string[];
+    screen_recording_tools: string[];
+    animation_tools: string[];
+    estimated_cost_per_video: string;
+}
+
+export interface SEODescription {
+    intro_paragraph: string;
+    keyword_block: string[];
+    chapters: string[];
+    cta_structure: string;
+    affiliate_positioning: string;
 }
 
 export interface MonetizationStrategy {
-    primary_revenue: string;
-    secondary_revenue: string[];
-    estimated_rpm: number;
-    affiliate_opportunities: string[];
+    affiliate_products: string[];
+    sponsorship_categories: string[];
+    digital_products: string[];
+    lead_magnets: string[];
+    expansion_strategy: string;
 }
 
+export interface VideoBlueprint {
+    video_idea: VideoIdea;
+    title_formulas: string[];
+    curiosity_gap_headline: string;
+    keyword_optimized_title: string;
+    alternative_titles: string[];
+    thumbnail: ThumbnailConcept;
+    script_structure: ScriptStructure;
+    production_plan: ProductionPlan;
+    low_cost_production: LowCostProduction;
+    seo_description: SEODescription;
+    monetization: MonetizationStrategy;
+}
+
+// ── Viral Opportunity ─────────────────────────────────────────────────────────
+
 export interface ViralOpportunity {
+    video_title: string;
+    video_id: string;
     channel_name: string;
     channel_subscribers: number;
-    video_title: string;
     video_views: number;
-    video_id: string;
-    upload_date: string;
+    video_age_days: number;
+    views_to_sub_ratio: number;
     opportunity_score: number;
-    subscriber_view_ratio: number;
+}
+
+// ── Topic Velocity ────────────────────────────────────────────────────────────
+
+export interface WeeklyUploadVolume {
+    week_label: string;
+    upload_count: number;
 }
 
 export interface TopicVelocityResult {
     niche: string;
-    weekly_volumes: WeeklyVolume[];
+    weekly_volumes: WeeklyUploadVolume[];
     growth_rate: number;
     acceleration: number;
     velocity_score: number;
 }
 
-export interface WeeklyVolume {
-    week: string;
-    volume: number;
-}
+// ── Thumbnail Patterns ────────────────────────────────────────────────────────
 
-export interface ThumbnailPattern {
-    niche: string;
-    total_analyzed: number;
-    style_groups: ThumbnailStyleGroup[];
-    dominant_colors: ColorInfo[];
-    face_frequency: number;
-    text_usage: number;
-    avg_contrast: number;
+export interface ThumbnailSignals {
+    video_id: string;
+    video_title: string;
+    dominant_colors: string[];
+    has_text: boolean;
+    text_coverage_pct: number;
+    has_face: boolean;
+    contrast_level: number;
+    brightness: number;
+    saturation: number;
+    visual_clutter_score: number;
 }
 
 export interface ThumbnailStyleGroup {
+    group_id: number;
     style_label: string;
     count: number;
     avg_views: number;
-    characteristics: string[];
+    dominant_colors: string[];
+    text_prevalence: number;
+    face_prevalence: number;
+    avg_contrast: number;
+    characteristics?: string[];
 }
 
-export interface ColorInfo {
-    color: string;
-    hex: string;
-    frequency: number;
+export interface ThumbnailPatternResult {
+    niche: string;
+    total_analyzed: number;
+    signals: ThumbnailSignals[];
+    style_groups: ThumbnailStyleGroup[];
+    insight: string;
+    recommendations: string[];
 }
+
+// ── API Response Envelope ─────────────────────────────────────────────────────
 
 export interface AnalyzeResponse {
     status: string;
@@ -135,7 +192,7 @@ export interface AnalyzeResponse {
     video_blueprints: Record<string, VideoBlueprint[]>;
     viral_opportunities: Record<string, ViralOpportunity[]>;
     topic_velocities: Record<string, TopicVelocityResult>;
-    thumbnail_patterns: Record<string, ThumbnailPattern>;
+    thumbnail_patterns: Record<string, ThumbnailPatternResult>;
     ai_insights: Record<string, unknown>;
     metadata: Record<string, unknown>;
 }

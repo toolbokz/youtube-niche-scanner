@@ -79,7 +79,12 @@ export default function StrategyPage() {
                                 <Users className="mt-0.5 h-4 w-4 text-muted-foreground shrink-0" />
                                 <div>
                                     <p className="text-xs text-muted-foreground">Target Audience</p>
-                                    <p className="text-sm font-medium">{concept.target_audience}</p>
+                                    <p className="text-sm font-medium">
+                                        {concept.audience?.age_range || 'General'}
+                                        {concept.audience?.interests?.length
+                                            ? ` · ${concept.audience.interests.slice(0, 2).join(', ')}`
+                                            : ''}
+                                    </p>
                                 </div>
                             </div>
                             <div className="flex items-start gap-3">
@@ -106,26 +111,38 @@ export default function StrategyPage() {
                         </div>
 
                         {/* Audience persona */}
-                        {concept.audience_persona && (
+                        {concept.audience && (
                             <div className="rounded-lg border p-4">
                                 <p className="text-sm font-medium mb-2">Audience Persona</p>
                                 <div className="grid gap-2 sm:grid-cols-2 text-sm">
                                     <div>
                                         <span className="text-muted-foreground">Age Range: </span>
-                                        {concept.audience_persona.age_range}
+                                        {concept.audience.age_range}
                                     </div>
                                     <div>
-                                        <span className="text-muted-foreground">Platforms: </span>
-                                        {concept.audience_persona.platforms?.join(', ')}
+                                        <span className="text-muted-foreground">Content Preferences: </span>
+                                        {concept.audience.content_preferences?.join(', ')}
                                     </div>
                                     <div>
                                         <span className="text-muted-foreground">Interests: </span>
-                                        {concept.audience_persona.interests?.join(', ')}
+                                        {concept.audience.interests?.join(', ')}
                                     </div>
                                     <div>
                                         <span className="text-muted-foreground">Pain Points: </span>
-                                        {concept.audience_persona.pain_points?.join(', ')}
+                                        {concept.audience.pain_points?.join(', ')}
                                     </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Channel name ideas */}
+                        {concept.channel_name_ideas && concept.channel_name_ideas.length > 0 && (
+                            <div>
+                                <p className="text-sm font-medium mb-2">Channel Name Ideas</p>
+                                <div className="flex flex-wrap gap-2">
+                                    {concept.channel_name_ideas.map((name) => (
+                                        <Badge key={name} variant="outline">{name}</Badge>
+                                    ))}
                                 </div>
                             </div>
                         )}
@@ -148,22 +165,25 @@ export default function StrategyPage() {
                                             >
                                                 <div className="flex items-start justify-between gap-2">
                                                     <div className="min-w-0 flex-1">
-                                                        <p className="text-sm font-medium leading-tight">{bp.title}</p>
-                                                        <p className="mt-1 text-xs text-muted-foreground">{bp.topic}</p>
+                                                        <p className="text-sm font-medium leading-tight">
+                                                            {bp.keyword_optimized_title || bp.video_idea?.title}
+                                                        </p>
+                                                        <p className="mt-1 text-xs text-muted-foreground">{bp.video_idea?.topic}</p>
                                                     </div>
-                                                    {bp.ctr_score > 0 && (
-                                                        <Badge variant="success" className="shrink-0">
-                                                            CTR {formatScore(bp.ctr_score)}
+                                                    {bp.video_idea?.difficulty && (
+                                                        <Badge variant="secondary" className="shrink-0 capitalize">
+                                                            {bp.video_idea.difficulty}
                                                         </Badge>
                                                     )}
                                                 </div>
 
                                                 {/* Thumbnail concept */}
-                                                {bp.thumbnail_concept && (
+                                                {bp.thumbnail && (
                                                     <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
                                                         <Palette className="h-3 w-3" />
                                                         <span>
-                                                            {bp.thumbnail_concept.style} · {bp.thumbnail_concept.emotion}
+                                                            {bp.thumbnail.emotion_trigger}
+                                                            {bp.thumbnail.contrast_strategy ? ` · ${bp.thumbnail.contrast_strategy}` : ''}
                                                         </span>
                                                     </div>
                                                 )}
@@ -197,9 +217,16 @@ export default function StrategyPage() {
                                                                 <p className="mt-1 text-muted-foreground">
                                                                     Hook: {bp.script_structure.hook}
                                                                 </p>
-                                                                <p className="text-muted-foreground">
-                                                                    Sections: {bp.script_structure.sections?.join(' → ')}
-                                                                </p>
+                                                                {bp.script_structure.story_progression && (
+                                                                    <p className="text-muted-foreground">
+                                                                        Story: {bp.script_structure.story_progression}
+                                                                    </p>
+                                                                )}
+                                                                {bp.script_structure.retention_pattern_interrupt && (
+                                                                    <p className="text-muted-foreground">
+                                                                        Pattern interrupt: {bp.script_structure.retention_pattern_interrupt}
+                                                                    </p>
+                                                                )}
                                                             </div>
                                                         )}
 
@@ -209,10 +236,13 @@ export default function StrategyPage() {
                                                                     <Video className="h-3 w-3" /> Production Plan
                                                                 </p>
                                                                 <p className="text-muted-foreground">
-                                                                    Format: {bp.production_plan.format} ·{' '}
-                                                                    {bp.production_plan.estimated_duration_minutes} min ·{' '}
-                                                                    {bp.production_plan.editing_complexity} editing
+                                                                    Rhythm: {bp.production_plan.editing_rhythm}
                                                                 </p>
+                                                                {bp.production_plan.stock_footage_sources?.length > 0 && (
+                                                                    <p className="text-muted-foreground">
+                                                                        Sources: {bp.production_plan.stock_footage_sources.join(', ')}
+                                                                    </p>
+                                                                )}
                                                             </div>
                                                         )}
 
@@ -222,26 +252,41 @@ export default function StrategyPage() {
                                                                     <Lightbulb className="h-3 w-3" /> SEO Description
                                                                 </p>
                                                                 <p className="text-muted-foreground line-clamp-3">
-                                                                    {bp.seo_description}
+                                                                    {bp.seo_description.intro_paragraph}
                                                                 </p>
+                                                                {bp.seo_description.keyword_block?.length > 0 && (
+                                                                    <div className="mt-1 flex flex-wrap gap-1">
+                                                                        {bp.seo_description.keyword_block.map((kw) => (
+                                                                            <Badge key={kw} variant="outline" className="text-[10px]">
+                                                                                {kw}
+                                                                            </Badge>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         )}
 
-                                                        {bp.monetization_strategy && (
+                                                        {bp.monetization && (
                                                             <div>
                                                                 <p className="font-medium flex items-center gap-1">
                                                                     <DollarSign className="h-3 w-3" /> Monetization
                                                                 </p>
-                                                                <p className="text-muted-foreground">
-                                                                    Primary: {bp.monetization_strategy.primary_revenue} · RPM: $
-                                                                    {bp.monetization_strategy.estimated_rpm?.toFixed(2)}
-                                                                </p>
+                                                                {bp.monetization.affiliate_products?.length > 0 && (
+                                                                    <p className="text-muted-foreground">
+                                                                        Affiliates: {bp.monetization.affiliate_products.join(', ')}
+                                                                    </p>
+                                                                )}
+                                                                {bp.monetization.expansion_strategy && (
+                                                                    <p className="text-muted-foreground">
+                                                                        Strategy: {bp.monetization.expansion_strategy}
+                                                                    </p>
+                                                                )}
                                                             </div>
                                                         )}
 
-                                                        {bp.target_keywords && bp.target_keywords.length > 0 && (
+                                                        {bp.video_idea?.target_keywords && bp.video_idea.target_keywords.length > 0 && (
                                                             <div className="flex flex-wrap gap-1">
-                                                                {bp.target_keywords.map((kw) => (
+                                                                {bp.video_idea.target_keywords.map((kw) => (
                                                                     <Badge key={kw} variant="outline" className="text-[10px]">
                                                                         {kw}
                                                                     </Badge>

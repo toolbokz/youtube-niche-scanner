@@ -11,8 +11,7 @@ const ThumbnailDonut = dynamic(
 );
 
 import { EmptyState } from '@/components/ui/spinner';
-import { Image, Palette, Type, Contrast, Smile, Eye } from 'lucide-react';
-import { formatScore } from '@/lib/utils';
+import { Image, Type, Contrast, Smile, Eye } from 'lucide-react';
 
 export default function ThumbnailsPage() {
     const analysisData = useAppStore((s) => s.analysisData);
@@ -35,19 +34,32 @@ export default function ThumbnailsPage() {
 
     const patterns = Object.entries(analysisData.thumbnail_patterns);
 
-    // Aggregate stats for insight cards
+    // Aggregate stats from style_groups (the backend sends per-group metrics)
     const allPatterns = patterns.map(([, p]) => p);
+
+    function avgStyleGroupField(
+        p: (typeof allPatterns)[number],
+        field: 'face_prevalence' | 'text_prevalence' | 'avg_contrast'
+    ): number {
+        if (!p.style_groups || p.style_groups.length === 0) return 0;
+        const total = p.style_groups.reduce((s, sg) => s + (sg[field] || 0), 0);
+        return total / p.style_groups.length;
+    }
+
     const avgFaceFreq =
         allPatterns.length > 0
-            ? allPatterns.reduce((s, p) => s + (p.face_frequency || 0), 0) / allPatterns.length
+            ? allPatterns.reduce((s, p) => s + avgStyleGroupField(p, 'face_prevalence'), 0) /
+            allPatterns.length
             : 0;
     const avgTextUsage =
         allPatterns.length > 0
-            ? allPatterns.reduce((s, p) => s + (p.text_usage || 0), 0) / allPatterns.length
+            ? allPatterns.reduce((s, p) => s + avgStyleGroupField(p, 'text_prevalence'), 0) /
+            allPatterns.length
             : 0;
     const avgContrast =
         allPatterns.length > 0
-            ? allPatterns.reduce((s, p) => s + (p.avg_contrast || 0), 0) / allPatterns.length
+            ? allPatterns.reduce((s, p) => s + avgStyleGroupField(p, 'avg_contrast'), 0) /
+            allPatterns.length
             : 0;
 
     return (
@@ -70,7 +82,7 @@ export default function ThumbnailsPage() {
                             </div>
                             <div>
                                 <p className="text-sm text-muted-foreground">Face Frequency</p>
-                                <p className="text-2xl font-bold">{(avgFaceFreq * 100).toFixed(0)}%</p>
+                                <p className="text-2xl font-bold">{avgFaceFreq.toFixed(0)}%</p>
                             </div>
                         </div>
                     </CardContent>
@@ -83,7 +95,7 @@ export default function ThumbnailsPage() {
                             </div>
                             <div>
                                 <p className="text-sm text-muted-foreground">Text Usage</p>
-                                <p className="text-2xl font-bold">{(avgTextUsage * 100).toFixed(0)}%</p>
+                                <p className="text-2xl font-bold">{avgTextUsage.toFixed(0)}%</p>
                             </div>
                         </div>
                     </CardContent>
@@ -113,8 +125,8 @@ export default function ThumbnailsPage() {
                             <p className="text-sm text-muted-foreground">
                                 High performing thumbnails frequently use{' '}
                                 {avgContrast > 50 ? 'high contrast colors' : 'moderate contrast'} and{' '}
-                                {avgTextUsage > 0.5 ? 'prominent text overlays' : 'minimal text'}.{' '}
-                                {avgFaceFreq > 0.5
+                                {avgTextUsage > 50 ? 'prominent text overlays' : 'minimal text'}.{' '}
+                                {avgFaceFreq > 50
                                     ? 'Face-forward thumbnails dominate across niches.'
                                     : 'Non-face thumbnails perform well in these niches.'}
                             </p>
@@ -125,15 +137,32 @@ export default function ThumbnailsPage() {
 
             {/* Per-niche breakdown */}
             {patterns.map(([nicheName, pattern]) => {
-                const colorData = (pattern.dominant_colors || []).map((c) => ({
-                    name: c.color || c.hex,
-                    value: Math.round((c.frequency || 0) * 100),
-                }));
+                // Aggregate dominant colors from all style groups
+                const allColors: Record<string, number> = {};
+                (pattern.style_groups || []).forEach((sg) => {
+                    (sg.dominant_colors || []).forEach((c) => {
+                        allColors[c] = (allColors[c] || 0) + sg.count;
+                    });
+                });
+                const colorData = Object.entries(allColors)
+                    .sort(([, a], [, b]) => b - a)
+                    .slice(0, 8)
+                    .map(([color, count]) => ({ name: color, value: count }));
 
                 const styleData = (pattern.style_groups || []).map((sg) => ({
                     name: sg.style_label,
                     value: sg.count,
                 }));
+
+                // Per-niche aggregates from style groups
+                const nicheFaceFreq =
+                    pattern.style_groups?.length
+                        ? pattern.style_groups.reduce((s, sg) => s + (sg.face_prevalence || 0), 0) / pattern.style_groups.length
+                        : 0;
+                const nicheTextUsage =
+                    pattern.style_groups?.length
+                        ? pattern.style_groups.reduce((s, sg) => s + (sg.text_prevalence || 0), 0) / pattern.style_groups.length
+                        : 0;
 
                 return (
                     <Card key={nicheName}>
@@ -148,11 +177,11 @@ export default function ThumbnailsPage() {
                                 <div className="flex gap-2">
                                     <Badge variant="outline">
                                         <Smile className="mr-1 h-3 w-3" />
-                                        Face: {((pattern.face_frequency || 0) * 100).toFixed(0)}%
+                                        Face: {nicheFaceFreq.toFixed(0)}%
                                     </Badge>
                                     <Badge variant="outline">
                                         <Type className="mr-1 h-3 w-3" />
-                                        Text: {((pattern.text_usage || 0) * 100).toFixed(0)}%
+                                        Text: {nicheTextUsage.toFixed(0)}%
                                     </Badge>
                                 </div>
                             </div>
@@ -177,7 +206,8 @@ export default function ThumbnailsPage() {
                                                 <div>
                                                     <p className="text-sm font-medium">{sg.style_label}</p>
                                                     <p className="text-xs text-muted-foreground">
-                                                        {sg.characteristics?.slice(0, 3).join(', ')}
+                                                        {sg.dominant_colors?.slice(0, 3).join(', ') ||
+                                                            `Face ${sg.face_prevalence?.toFixed(0)}% · Text ${sg.text_prevalence?.toFixed(0)}%`}
                                                     </p>
                                                 </div>
                                                 <div className="text-right">
@@ -189,6 +219,24 @@ export default function ThumbnailsPage() {
                                             </div>
                                         ))}
                                     </div>
+                                </div>
+                            )}
+
+                            {/* Insight & recommendations */}
+                            {pattern.insight && (
+                                <div className="mt-4 rounded-lg bg-muted/50 p-3">
+                                    <p className="text-sm font-medium">Insight</p>
+                                    <p className="text-sm text-muted-foreground">{pattern.insight}</p>
+                                </div>
+                            )}
+                            {pattern.recommendations && pattern.recommendations.length > 0 && (
+                                <div className="mt-3">
+                                    <p className="text-sm font-medium mb-1">Recommendations</p>
+                                    <ul className="list-disc pl-5 text-sm text-muted-foreground space-y-0.5">
+                                        {pattern.recommendations.map((rec, i) => (
+                                            <li key={i}>{rec}</li>
+                                        ))}
+                                    </ul>
                                 </div>
                             )}
                         </CardContent>

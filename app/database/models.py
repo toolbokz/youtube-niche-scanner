@@ -64,6 +64,8 @@ class NicheRecord(Base):
     virality_score = Column(Float, default=0.0)
     ctr_potential = Column(Float, default=0.0)
     faceless_viability = Column(Float, default=0.0)
+    viral_opportunity_score = Column(Float, default=0.0)
+    topic_velocity_score = Column(Float, default=0.0)
     overall_score = Column(Float, default=0.0)
     rank = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)

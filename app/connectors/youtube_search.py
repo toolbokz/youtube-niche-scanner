@@ -121,6 +121,7 @@ class YouTubeSearchConnector(BaseConnector):
                 view_count=view_count,
                 video_id=video_id,
                 duration_seconds=duration_seconds,
+                published_date=published_text,
             )
         except Exception:
             return None

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json as _json
 import time
+import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncGenerator
@@ -145,6 +146,15 @@ class TimingMiddleware(BaseHTTPMiddleware):
         return response
 
 
+# ── Structured Error Response ──────────────────────────────────────────────────
+
+class ErrorResponse(BaseModel):
+    """Standard error envelope returned by all error handlers."""
+    error: str
+    detail: str = ""
+    status_code: int = 500
+
+
 # ── FastAPI App ────────────────────────────────────────────────────────────────
 
 def create_app() -> FastAPI:
@@ -160,6 +170,46 @@ def create_app() -> FastAPI:
         docs_url="/docs" if settings.app.debug else None,
         redoc_url="/redoc" if settings.app.debug else None,
     )
+
+    # ── Global exception handlers ──────────────────────────────────────
+
+    @app.exception_handler(HTTPException)
+    async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+        """Return structured JSON for HTTP errors."""
+        logger.warning(
+            "http_error",
+            path=request.url.path,
+            status=exc.status_code,
+            detail=str(exc.detail),
+        )
+        return _DefaultJSON(
+            status_code=exc.status_code,
+            content=ErrorResponse(
+                error=f"HTTP {exc.status_code}",
+                detail=str(exc.detail),
+                status_code=exc.status_code,
+            ).model_dump(),
+        )
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        """Catch-all for unexpected errors — log full traceback, return safe JSON."""
+        logger.error(
+            "unhandled_error",
+            path=request.url.path,
+            method=request.method,
+            error=str(exc),
+            traceback=traceback.format_exc(),
+        )
+        detail = str(exc) if settings.app.debug else "An internal error occurred"
+        return _DefaultJSON(
+            status_code=500,
+            content=ErrorResponse(
+                error="Internal Server Error",
+                detail=detail,
+                status_code=500,
+            ).model_dump(),
+        )
 
     # GZip — compress responses > 500 bytes (huge win for large JSON payloads)
     app.add_middleware(GZipMiddleware, minimum_size=500)

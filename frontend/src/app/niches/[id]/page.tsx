@@ -19,7 +19,7 @@ const VelocityChart = dynamic(
 import { EmptyState } from '@/components/ui/spinner';
 import { ArrowLeft, Users, Eye, Calendar, Zap, TrendingUp } from 'lucide-react';
 import Link from 'next/link';
-import { formatScore, formatNumber, formatDate } from '@/lib/utils';
+import { formatScore, formatNumber } from '@/lib/utils';
 
 export default function NicheDetailPage() {
     const params = useParams();
@@ -130,7 +130,12 @@ export default function NicheDetailPage() {
                         <div className="grid gap-4 sm:grid-cols-3">
                             <div>
                                 <p className="text-sm text-muted-foreground">Target Audience</p>
-                                <p className="text-sm font-medium">{channelConcept.target_audience}</p>
+                                <p className="text-sm font-medium">
+                                    {channelConcept.audience?.age_range || 'General'}
+                                    {channelConcept.audience?.interests?.length
+                                        ? ` · ${channelConcept.audience.interests.slice(0, 2).join(', ')}`
+                                        : ''}
+                                </p>
                             </div>
                             <div>
                                 <p className="text-sm text-muted-foreground">Posting Cadence</p>
@@ -171,7 +176,7 @@ export default function NicheDetailPage() {
                                         </th>
                                         <th className="px-4 py-3 text-left font-medium">
                                             <Calendar className="inline mr-1 h-3 w-3" />
-                                            Upload Date
+                                            Age (days)
                                         </th>
                                         <th className="px-4 py-3 text-left font-medium">
                                             <Zap className="inline mr-1 h-3 w-3" />
@@ -189,7 +194,7 @@ export default function NicheDetailPage() {
                                                 <td className="max-w-xs truncate px-4 py-3">{opp.video_title}</td>
                                                 <td className="px-4 py-3">{formatNumber(opp.video_views)}</td>
                                                 <td className="px-4 py-3 text-muted-foreground">
-                                                    {opp.upload_date ? formatDate(opp.upload_date) : '—'}
+                                                    {opp.video_age_days != null ? `${opp.video_age_days}d ago` : '—'}
                                                 </td>
                                                 <td className="px-4 py-3">
                                                     <Badge variant="success">{opp.opportunity_score?.toFixed(0)}</Badge>

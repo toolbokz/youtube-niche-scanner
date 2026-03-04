@@ -173,6 +173,15 @@ ranking:
 | `POST` | `/discover` | Automatic niche discovery (deep mode optional) |
 | `GET` | `/niches?keywords=ai,crypto&top_n=10` | Quick niche discovery |
 | `GET` | `/cache/stats` | Cache statistics |
+| `GET` | `/ai/niche-insights?top_n=5` | AI-powered niche deep-dive |
+| `GET` | `/ai/video-strategy?niche=...&count=15` | AI video strategy for a niche |
+| `GET` | `/ai/trend-forecast` | AI trend forecast from velocity data |
+| `GET` | `/reports` | List saved reports |
+| `GET` | `/reports/{filename}` | Get a single report |
+| `GET` | `/reports/{filename}/download?format=json` | Download report |
+| `POST` | `/analyze/async` | Fire-and-forget pipeline (returns task_id) |
+| `GET` | `/tasks/{task_id}` | Poll background task status |
+| `GET` | `/dashboard-data` | Batch endpoint: health + cache + latest report |
 
 ### POST /analyze
 
@@ -291,21 +300,30 @@ docker run -p 8000:8000 growth-strategist
 
 ## Tech Stack
 
+### Backend
 - **Python 3.11+** — Core language
-- **FastAPI** — API layer
-- **Plotly Dash** — Interactive Discovery Map UI
-- **dash-cytoscape** — Network graph visualization (Cytoscape.js)
-- **NetworkX** — Graph construction and analysis
-- **Plotly** — Radar charts, bar charts, donuts
-- **dash-bootstrap-components** — Dark theme layout
-- **SQLAlchemy** — Async ORM with SQLite/PostgreSQL
-- **httpx** — HTTP client (backend + UI API calls)
-- **scikit-learn** — TF-IDF vectorization + clustering
-- **Pydantic** — Data validation and settings
-- **Click + Rich** — CLI interface
+- **FastAPI** — API layer with GZip, orjson, CORS, Server-Timing
+- **SQLAlchemy** — Async ORM with SQLite (aiosqlite) / PostgreSQL (asyncpg)
+- **Pydantic v2** — Data validation and settings
+- **httpx** — Async HTTP client
+- **scikit-learn** — TF-IDF vectorization + hierarchical clustering
 - **structlog** — Structured logging
+- **orjson** — ~5× faster JSON serialisation
+- **Redis** — Optional cache tier (LRU → Redis → disk)
+- **Vertex AI / Gemini** — AI-powered analysis (Pro + Flash)
+- **Pillow** — Thumbnail image analysis
 - **pytrends** — Google Trends data
 - **BeautifulSoup4** — HTML parsing
+- **Click + Rich** — CLI interface
+
+### Frontend
+- **Next.js 14** — App Router with Server Components
+- **React 18** — UI framework
+- **TypeScript** — Type-safe frontend
+- **TailwindCSS v3** — Utility-first styling
+- **Recharts** — Charts (area, radar, pie/donut)
+- **TanStack Query v5** — Server state management
+- **Zustand v5** — Client state management
 
 ---
 

@@ -260,7 +260,7 @@ class ReportGenerationEngine:
                         lines.append(
                             f"| {sg.style_label} | {sg.count} "
                             f"| {sg.avg_views:,.0f} | {colors} "
-                            f"| {sg.text_prevalence:.0%} | {sg.face_prevalence:.0%} "
+                            f"| {sg.text_prevalence:.0f}% | {sg.face_prevalence:.0f}% "
                             f"| {sg.avg_contrast:.1f} |"
                         )
 

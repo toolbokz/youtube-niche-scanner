@@ -21,8 +21,8 @@ interface VelocityChartProps {
 
 export const VelocityChart = memo(function VelocityChart({ data, title }: VelocityChartProps) {
     const chartData = (data.weekly_volumes || []).map((wv) => ({
-        week: wv.week,
-        volume: wv.volume,
+        week: wv.week_label,
+        volume: wv.upload_count,
     }));
 
     const trendLabel =

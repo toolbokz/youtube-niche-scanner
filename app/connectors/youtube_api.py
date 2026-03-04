@@ -74,10 +74,8 @@ class YouTubeDataAPIConnector(BaseConnector):
                     title=snippet.get("title", ""),
                     channel_name=snippet.get("channelTitle", ""),
                     view_count=int(stats.get("viewCount", 0)),
-                    like_count=int(stats.get("likeCount", 0)),
-                    comment_count=int(stats.get("commentCount", 0)),
                     video_id=item.get("id", ""),
-                    published_at=snippet.get("publishedAt"),
+                    published_date=snippet.get("publishedAt", ""),
                 ))
         except Exception as e:
             self.logger.error("video_details_error", error=str(e))
