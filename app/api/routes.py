@@ -7,9 +7,10 @@ from typing import Any, AsyncGenerator
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.middleware.wsgi import WSGIMiddleware
 from starlette.responses import Response
 from pydantic import BaseModel, Field
 
@@ -126,19 +127,24 @@ def create_app() -> FastAPI:
     # Security headers
     app.add_middleware(SecurityHeadersMiddleware)
 
-    # Mount static assets (CSS, JS)
+    # Mount static assets (CSS, JS) — legacy
     if _STATIC_DIR.is_dir():
         app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
+    # ── Mount Dash Discovery Map at /map ──
+    try:
+        from app.ui.app import app as dash_app
+        app.mount("/map", WSGIMiddleware(dash_app.server))
+        logger.info("dash_mounted", path="/map")
+    except Exception as exc:  # pragma: no cover
+        logger.warning("dash_mount_failed", error=str(exc))
+
     # ── Routes ──
 
-    @app.get("/", response_class=HTMLResponse, include_in_schema=False)
-    async def dashboard() -> HTMLResponse:
-        """Serve the web dashboard."""
-        index_path = _TEMPLATE_DIR / "index.html"
-        if not index_path.exists():
-            raise HTTPException(status_code=404, detail="Dashboard template not found")
-        return HTMLResponse(content=index_path.read_text(encoding="utf-8"))
+    @app.get("/", include_in_schema=False)
+    async def root_redirect():
+        """Redirect root to the Discovery Map UI."""
+        return RedirectResponse(url="/map/", status_code=302)
 
     @app.get("/health", response_model=HealthResponse)
     async def health_check() -> HealthResponse:

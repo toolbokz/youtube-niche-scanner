@@ -37,7 +37,7 @@ app/
 ├── competition_analysis/  # Competition saturation scoring
 ├── virality_prediction/   # Viral potential heuristics
 ├── ctr_prediction/        # CTR potential scoring
-├── ranking_engine/        # Weighted niche ranking
+├── ranking_engine/        # Weighted niche ranking (7-signal formula)
 ├── faceless_viability/    # Faceless format suitability
 ├── video_strategy/        # Channel concepts, video ideas, blueprints
 ├── thumbnail_strategy/    # Thumbnail concept generation
@@ -46,6 +46,13 @@ app/
 ├── monetization_engine/   # Monetization strategy generation
 ├── report_generation/     # JSON + Markdown report output
 ├── api/            # FastAPI endpoints
+├── ui/             # Interactive Discovery Map (Plotly Dash)
+│   ├── app.py          # Main Dash application, layout & callbacks
+│   ├── api_client.py   # HTTP client for FastAPI backend
+│   ├── graph_engine.py  # NetworkX → Cytoscape graph conversion
+│   ├── styles.py        # Dark analytics theme & Cytoscape stylesheet
+│   ├── panels.py        # Side-panel component builders (charts, details)
+│   └── export.py        # JSON / Markdown / PNG export utilities
 └── cli.py          # Click-based CLI interface
 ```
 
@@ -89,7 +96,26 @@ python main.py serve
 # Access docs at http://localhost:8000/docs
 ```
 
-### 4. Other Commands
+### 4. Launch Interactive Discovery Map
+
+```bash
+# Start the backend first
+python main.py serve
+
+# In another terminal — launch the Dash UI
+python -m app.ui.app
+
+# Open http://localhost:8050
+```
+
+The Discovery Map provides:
+- **Interactive network visualization** — Cytoscape.js topic graph with niche, keyword, viral, and trend nodes
+- **Layer toggles** — Show/hide keywords, viral opportunities, and trend signals
+- **Node analysis** — Click any node for deep-dive panels (radar charts, velocity sparklines, thumbnail donuts)
+- **Discovery controls** — Seed keyword analysis, auto-discover, and deep-discover modes
+- **Export** — Download reports as JSON, Markdown, or PNG screenshot
+
+### 5. Other Commands
 
 ```bash
 # Check system health
@@ -137,6 +163,7 @@ ranking:
 |--------|----------|-------------|
 | `GET` | `/health` | Health check |
 | `POST` | `/analyze` | Full pipeline analysis |
+| `POST` | `/discover` | Automatic niche discovery (deep mode optional) |
 | `GET` | `/niches?keywords=ai,crypto&top_n=10` | Quick niche discovery |
 | `GET` | `/cache/stats` | Cache statistics |
 
@@ -170,12 +197,13 @@ ranking:
 
 ```
 Niche Score =
-  0.30 × Demand Score
-+ 0.25 × (100 - Competition Score)
+  0.25 × Demand Score
++ 0.20 × (100 − Competition Score)
 + 0.15 × Trend Momentum
 + 0.15 × Virality Score
 + 0.10 × CTR Potential
-+ 0.05 × Faceless Viability
++ 0.10 × Viral Opportunity Score
++ 0.05 × Topic Velocity Score
 ```
 
 All scores normalized to 0–100.
@@ -258,8 +286,13 @@ docker run -p 8000:8000 growth-strategist
 
 - **Python 3.11+** — Core language
 - **FastAPI** — API layer
+- **Plotly Dash** — Interactive Discovery Map UI
+- **dash-cytoscape** — Network graph visualization (Cytoscape.js)
+- **NetworkX** — Graph construction and analysis
+- **Plotly** — Radar charts, bar charts, donuts
+- **dash-bootstrap-components** — Dark theme layout
 - **SQLAlchemy** — Async ORM with SQLite/PostgreSQL
-- **httpx** — Async HTTP client
+- **httpx** — HTTP client (backend + UI API calls)
 - **scikit-learn** — TF-IDF vectorization + clustering
 - **Pydantic** — Data validation and settings
 - **Click + Rich** — CLI interface
