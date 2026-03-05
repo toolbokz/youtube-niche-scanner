@@ -6,6 +6,10 @@ import type {
     ReportSummary,
     ReportDetail,
     CompilationStrategy,
+    VideoFactoryStartRequest,
+    VideoFactoryStartResponse,
+    VideoFactoryJobStatus,
+    VideoFactoryJobSummary,
 } from '@/types';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -115,4 +119,41 @@ export async function getDashboardData() {
         latest_report: Record<string, unknown> | null;
         recent_reports: Array<Record<string, unknown>>;
     }>('/dashboard-data');
+}
+
+// ── Video Factory ─────────────────────────────────────────────────────────────
+
+export async function startVideoFactory(
+    params: VideoFactoryStartRequest,
+): Promise<VideoFactoryStartResponse> {
+    return request<VideoFactoryStartResponse>('/video-factory/start', {
+        method: 'POST',
+        body: JSON.stringify(params),
+    });
+}
+
+export async function getVideoFactoryStatus(
+    jobId: string,
+): Promise<VideoFactoryJobStatus> {
+    return request<VideoFactoryJobStatus>(`/video-factory/status/${jobId}`);
+}
+
+export async function getVideoFactoryJobs(
+    status = '',
+    limit = 50,
+): Promise<{ jobs: VideoFactoryJobSummary[]; total: number }> {
+    const params = new URLSearchParams();
+    if (status) params.set('status', status);
+    params.set('limit', String(limit));
+    return request(`/video-factory/jobs?${params.toString()}`);
+}
+
+export async function cancelVideoFactoryJob(jobId: string) {
+    return request<{ status: string; job_id: string }>(`/video-factory/cancel/${jobId}`, {
+        method: 'POST',
+    });
+}
+
+export function getVideoFactoryDownloadUrl(jobId: string, file: 'video' | 'thumbnail' | 'subtitles' | 'metadata') {
+    return `${API_BASE}/video-factory/download/${jobId}?file=${file}`;
 }

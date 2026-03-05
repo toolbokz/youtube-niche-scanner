@@ -289,3 +289,62 @@ export interface DiscoverRequest {
     top_n?: number;
     videos_per_niche?: number;
 }
+
+// ── Video Factory Types ───────────────────────────────────────────────────────
+
+export interface VideoFactoryStartRequest {
+    niche: string;
+    voice_provider?: string;
+    voice_name?: string;
+    resolution?: string;
+    embed_subtitles?: boolean;
+    use_gpu?: boolean;
+}
+
+export interface VideoFactoryStartResponse {
+    status: string;
+    job_id: string;
+    niche: string;
+    message: string;
+}
+
+export interface VideoFactoryJobStatus {
+    job_id: string;
+    niche: string;
+    status: string;
+    progress_pct: number;
+    current_stage: string;
+    stages_completed: string[];
+    error: string;
+    created_at: string;
+    updated_at: string;
+    completed_at: string | null;
+    output_files: {
+        video: string;
+        thumbnail: string;
+        subtitles: string;
+        metadata: string;
+    } | null;
+    concept: {
+        title: string;
+        concept: string;
+        target_audience: string;
+        engagement_hook: string;
+    } | null;
+    metadata: {
+        title: string;
+        description: string;
+        tags: string[];
+        hashtags: string[];
+    } | null;
+}
+
+export interface VideoFactoryJobSummary {
+    job_id: string;
+    niche: string;
+    status: string;
+    progress_pct: number;
+    current_stage: string;
+    created_at: string;
+    error: string;
+}

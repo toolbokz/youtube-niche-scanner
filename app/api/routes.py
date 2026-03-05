@@ -645,6 +645,189 @@ def create_app() -> FastAPI:
 
         return result
 
+    # ── Video Factory endpoints ────────────────────────────────────────
+
+    class VideoFactoryStartRequest(BaseModel):
+        """Request body for starting a video factory job."""
+        niche: str = Field(..., min_length=1, description="YouTube niche to produce a video for")
+        voice_provider: str = Field(default="google_tts", description="TTS provider: google_tts | elevenlabs | edge_tts")
+        voice_name: str = Field(default="en-US-Neural2-D", description="Voice model name")
+        resolution: str = Field(default="1920x1080", description="Video resolution")
+        embed_subtitles: bool = Field(default=True, description="Burn subtitles into video")
+        use_gpu: bool = Field(default=True, description="Use GPU acceleration for rendering")
+
+    class VideoFactoryJobResponse(BaseModel):
+        """Video factory job status response."""
+        job_id: str
+        niche: str
+        status: str
+        progress_pct: float
+        current_stage: str
+        stages_completed: list[str]
+        error: str = ""
+        created_at: str
+        updated_at: str
+        completed_at: str | None = None
+        output_files: dict[str, str] | None = None
+
+    @app.post("/video-factory/start")
+    async def video_factory_start(request: VideoFactoryStartRequest) -> dict[str, Any]:
+        """Start a new video factory job.
+
+        Launches the full automated video production pipeline in the background.
+        Returns a job_id for polling progress via /video-factory/status/{job_id}.
+        """
+        from app.video_factory.job_manager import get_job_manager
+        from app.video_factory.models import VoiceConfig, AssemblyConfig
+
+        manager = get_job_manager()
+
+        voice_config = VoiceConfig(
+            provider=request.voice_provider,
+            voice_name=request.voice_name,
+        )
+        assembly_config = AssemblyConfig(
+            resolution=request.resolution,
+            embed_subtitles=request.embed_subtitles,
+            use_gpu=request.use_gpu,
+        )
+
+        job = await manager.submit_job(
+            niche=request.niche,
+            voice_config=voice_config,
+            assembly_config=assembly_config,
+        )
+
+        return {
+            "status": "accepted",
+            "job_id": job.job_id,
+            "niche": job.niche,
+            "message": f"Video factory job started for niche: {request.niche}",
+        }
+
+    @app.get("/video-factory/status/{job_id}")
+    async def video_factory_status(job_id: str) -> dict[str, Any]:
+        """Get the status of a video factory job."""
+        from app.video_factory.job_manager import get_job_manager
+
+        manager = get_job_manager()
+        job = manager.get_job(job_id)
+
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        output_files = None
+        if job.output and job.status.value == "completed":
+            output_files = {
+                "video": job.output.video_path,
+                "thumbnail": job.output.thumbnail_path,
+                "subtitles": job.output.subtitles_path,
+                "metadata": job.output.metadata_path,
+            }
+
+        return {
+            "job_id": job.job_id,
+            "niche": job.niche,
+            "status": job.status.value,
+            "progress_pct": job.progress_pct,
+            "current_stage": job.current_stage,
+            "stages_completed": job.stages_completed,
+            "error": job.error,
+            "created_at": job.created_at.isoformat(),
+            "updated_at": job.updated_at.isoformat(),
+            "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+            "output_files": output_files,
+            "concept": job.output.concept.model_dump() if job.output and job.output.concept.title else None,
+            "metadata": job.output.metadata.model_dump() if job.output and job.output.metadata.title else None,
+        }
+
+    @app.get("/video-factory/download/{job_id}")
+    async def video_factory_download(
+        job_id: str,
+        file: str = Query(default="video", description="File to download: video | thumbnail | subtitles | metadata"),
+    ) -> Response:
+        """Download a video factory output file."""
+        from app.video_factory.job_manager import get_job_manager
+
+        manager = get_job_manager()
+        job = manager.get_job(job_id)
+
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        if job.status.value != "completed" or not job.output:
+            raise HTTPException(status_code=400, detail="Job not completed yet")
+
+        file_map = {
+            "video": (job.output.video_path, "video/mp4", "video.mp4"),
+            "thumbnail": (job.output.thumbnail_path, "image/png", "thumbnail.png"),
+            "subtitles": (job.output.subtitles_path, "text/plain", "subtitles.srt"),
+            "metadata": (job.output.metadata_path, "application/json", "metadata.json"),
+        }
+
+        if file not in file_map:
+            raise HTTPException(status_code=400, detail=f"Unknown file type: {file}")
+
+        file_path, media_type, filename = file_map[file]
+
+        if not file_path or not Path(file_path).exists():
+            raise HTTPException(status_code=404, detail=f"File not found: {file}")
+
+        from starlette.responses import FileResponse
+        return FileResponse(
+            path=file_path,
+            media_type=media_type,
+            filename=filename,
+        )
+
+    @app.get("/video-factory/jobs")
+    async def video_factory_list_jobs(
+        status: str = Query(default="", description="Filter by status"),
+        limit: int = Query(default=50, ge=1, le=200),
+    ) -> dict[str, Any]:
+        """List all video factory jobs."""
+        from app.video_factory.job_manager import get_job_manager
+        from app.video_factory.models import JobStatus
+
+        manager = get_job_manager()
+
+        status_filter = None
+        if status:
+            try:
+                status_filter = JobStatus(status)
+            except ValueError:
+                pass
+
+        jobs = manager.list_jobs(status_filter=status_filter, limit=limit)
+
+        return {
+            "jobs": [
+                {
+                    "job_id": j.job_id,
+                    "niche": j.niche,
+                    "status": j.status.value,
+                    "progress_pct": j.progress_pct,
+                    "current_stage": j.current_stage,
+                    "created_at": j.created_at.isoformat(),
+                    "error": j.error,
+                }
+                for j in jobs
+            ],
+            "total": len(jobs),
+        }
+
+    @app.post("/video-factory/cancel/{job_id}")
+    async def video_factory_cancel(job_id: str) -> dict[str, Any]:
+        """Cancel a running video factory job."""
+        from app.video_factory.job_manager import get_job_manager
+
+        manager = get_job_manager()
+        cancelled = await manager.cancel_job(job_id)
+
+        if not cancelled:
+            raise HTTPException(status_code=400, detail="Job cannot be cancelled (not running or not found)")
+
+        return {"status": "cancelled", "job_id": job_id}
+
     return app
 
 

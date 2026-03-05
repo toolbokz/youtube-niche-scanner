@@ -82,3 +82,16 @@ reports:
   format:
     - "json"
     - "markdown"
+
+video_factory:
+  output_directory: "data/video_factory"
+  max_concurrent_jobs: 2
+  voice_provider: "placeholder"        # placeholder | google | elevenlabs | edge
+  voice_name: "en-US-Standard-D"
+  resolution: "1920x1080"
+  fps: 30
+  use_gpu: false
+  embed_subtitles: true
+  background_music_volume: 0.15
+  elevenlabs_api_key: ""
+  elevenlabs_voice_id: ""

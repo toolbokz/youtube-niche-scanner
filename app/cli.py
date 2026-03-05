@@ -259,6 +259,90 @@ def generate_report() -> None:
     console.print("[green]Report generation complete. Check data/reports/[/green]")
 
 
+@cli.command("video-factory")
+@click.argument("niche", required=True)
+@click.option("--voice", "-V", default=None, help="Voice provider (placeholder|google|elevenlabs|edge)")
+@click.option("--resolution", "-r", default=None, help="Video resolution e.g. 1920x1080")
+@click.option("--no-subs", is_flag=True, help="Skip subtitle embedding")
+def video_factory_cmd(niche: str, voice: str | None, resolution: str | None, no_subs: bool) -> None:
+    """Run the Video Factory pipeline to produce a complete video.
+
+    Generates concept, script, voiceover, clips, assembly, subtitles,
+    thumbnail, and metadata for a given niche.
+
+    Examples:
+        python main.py video-factory "AI productivity tools"
+        python main.py video-factory "yoga for beginners" --voice edge
+        python main.py video-factory "budget travel" -r 1280x720 --no-subs
+    """
+    console.print(Panel(
+        f"[bold cyan]Video Factory[/bold cyan]\n\n"
+        f"Niche: [yellow]{niche}[/yellow]\n"
+        f"Voice: {voice or 'config default'}\n"
+        f"Resolution: {resolution or 'config default'}\n"
+        f"Subtitles: {'off' if no_subs else 'on'}",
+        title="🎬 Video Factory",
+        border_style="cyan",
+    ))
+
+    asyncio.run(_run_video_factory(niche, voice, resolution, not no_subs))
+
+
+async def _run_video_factory(niche: str, voice: str | None, resolution: str | None, embed_subs: bool) -> None:
+    """Execute the Video Factory pipeline."""
+    from app.video_factory.factory_orchestrator import FactoryOrchestrator
+
+    settings = get_settings()
+    vf_cfg = settings.video_factory
+
+    voice_provider = voice or vf_cfg.voice_provider
+    res = resolution or vf_cfg.resolution
+    output_dir = Path(vf_cfg.output_directory) / niche.lower().replace(" ", "_")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    orchestrator = FactoryOrchestrator()
+
+    def _progress(step: int, total: int, label: str) -> None:
+        pct = int(step / total * 100)
+        console.print(f"  [{pct:3d}%] {label}")
+
+    try:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Running Video Factory pipeline...", total=None)
+
+            result = await orchestrator.run(
+                niche=niche,
+                output_dir=output_dir,
+                voice_provider=voice_provider,
+                resolution=res,
+                embed_subtitles=embed_subs,
+                progress_callback=_progress,
+            )
+
+            progress.update(task, description="[green]Pipeline complete!")
+
+        # Display results summary
+        console.print(Panel(
+            f"[bold green]Video Factory Complete![/bold green]\n\n"
+            f"Concept: [yellow]{result.concept.title if result.concept else 'N/A'}[/yellow]\n"
+            f"Video: {result.assembly.video_path if result.assembly else 'N/A'}\n"
+            f"Thumbnail: {result.thumbnail.image_path if result.thumbnail else 'N/A'}\n"
+            f"Subtitles: {result.subtitles.srt_path if result.subtitles else 'N/A'}\n"
+            f"Title: {result.metadata.title if result.metadata else 'N/A'}",
+            title="✅ Done",
+            border_style="green",
+        ))
+
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        logger.error("video_factory_error", error=str(e))
+        sys.exit(1)
+
+
 @cli.command()
 def cache_stats() -> None:
     """Show cache statistics."""

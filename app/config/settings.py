@@ -106,6 +106,21 @@ class VertexAIConfig(BaseModel):
     cache_ttl_hours: int = 24
 
 
+class VideoFactoryConfig(BaseModel):
+    """Video Factory pipeline configuration."""
+    output_directory: str = "data/video_factory"
+    max_concurrent_jobs: int = 2
+    voice_provider: str = "google_tts"     # google_tts | elevenlabs | edge_tts
+    voice_name: str = "en-US-Neural2-D"
+    resolution: str = "1920x1080"
+    fps: int = 30
+    use_gpu: bool = True
+    embed_subtitles: bool = True
+    background_music_volume: float = 0.15
+    elevenlabs_api_key: str = ""
+    elevenlabs_voice_id: str = ""
+
+
 class AppConfig(BaseModel):
     name: str = "Growth Strategist"
     version: str = "1.0.0"
@@ -126,6 +141,7 @@ class Settings(BaseModel):
     ranking: RankingConfig = RankingConfig()
     reports: ReportsConfig = ReportsConfig()
     vertex_ai: VertexAIConfig = VertexAIConfig()
+    video_factory: VideoFactoryConfig = VideoFactoryConfig()
 
     @property
     def is_production(self) -> bool:
@@ -199,6 +215,17 @@ _ENV_MAP: list[tuple[str, tuple[str, ...], type]] = [
     ("GS_VERTEX_AI_REGION",          ("vertex_ai", "region"),                     str),
     ("GS_VERTEX_CLIENT_ID",          ("vertex_ai", "client_id"),                  str),
     ("GS_VERTEX_AI_CACHE_TTL_HOURS", ("vertex_ai", "cache_ttl_hours"),            int),
+    # Video Factory
+    ("GS_VIDEO_FACTORY_OUTPUT_DIR",      ("video_factory", "output_directory"),              str),
+    ("GS_VIDEO_FACTORY_MAX_JOBS",        ("video_factory", "max_concurrent_jobs"),           int),
+    ("GS_VIDEO_FACTORY_VOICE_PROVIDER",  ("video_factory", "voice_provider"),                str),
+    ("GS_VIDEO_FACTORY_VOICE_NAME",      ("video_factory", "voice_name"),                    str),
+    ("GS_VIDEO_FACTORY_RESOLUTION",      ("video_factory", "resolution"),                    str),
+    ("GS_VIDEO_FACTORY_FPS",             ("video_factory", "fps"),                           int),
+    ("GS_VIDEO_FACTORY_USE_GPU",         ("video_factory", "use_gpu"),                       bool),
+    ("GS_VIDEO_FACTORY_EMBED_SUBS",      ("video_factory", "embed_subtitles"),               bool),
+    ("GS_ELEVENLABS_API_KEY",            ("video_factory", "elevenlabs_api_key"),             str),
+    ("GS_ELEVENLABS_VOICE_ID",           ("video_factory", "elevenlabs_voice_id"),            str),
 ]
 
 
