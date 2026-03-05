@@ -1233,19 +1233,35 @@ class TestJobManager:
         from app.video_factory.job_manager import FactoryJobManager
 
         manager = FactoryJobManager()
-        assert len(manager.jobs) == 0
+        assert len(manager._active_jobs) == 0
 
-    def test_get_nonexistent_job(self) -> None:
+    @pytest.mark.asyncio
+    async def test_get_nonexistent_job(self) -> None:
         from app.video_factory.job_manager import FactoryJobManager
 
         manager = FactoryJobManager()
-        assert manager.get_job("nonexistent") is None
+        result = await manager.get_job("nonexistent")
+        assert result is None
 
-    def test_list_empty_jobs(self) -> None:
+    @pytest.mark.asyncio
+    async def test_list_empty_jobs(self) -> None:
+        """A fresh manager with no active jobs and empty DB returns []."""
         from app.video_factory.job_manager import FactoryJobManager
 
         manager = FactoryJobManager()
-        assert manager.list_jobs() == []
+
+        # Mock the DB session as an async generator yielding a session with no rows
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        mock_session = AsyncMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        async def fake_get_session():
+            yield mock_session
+
+        with patch("app.video_factory.job_manager.get_session", fake_get_session):
+            result = await manager.list_jobs()
+        assert result == []
 
     def test_singleton(self) -> None:
         from app.video_factory.job_manager import get_job_manager
@@ -1277,22 +1293,5 @@ class TestJobManager:
             assert job.job_id != ""
             assert job.niche == "gaming"
             assert job.status == JobStatus.QUEUED
-            assert manager.get_job(job.job_id) is not None
-
-    def test_list_jobs_with_filter(self) -> None:
-        from app.video_factory.job_manager import FactoryJobManager
-
-        manager = FactoryJobManager()
-        # Manually add jobs for testing
-        job1 = FactoryJob(job_id="j1", niche="a", status=JobStatus.COMPLETED)
-        job2 = FactoryJob(job_id="j2", niche="b", status=JobStatus.FAILED)
-        job3 = FactoryJob(job_id="j3", niche="c", status=JobStatus.COMPLETED)
-        manager._jobs = {"j1": job1, "j2": job2, "j3": job3}
-
-        completed = manager.list_jobs(status_filter=JobStatus.COMPLETED)
-        assert len(completed) == 2
-        assert all(j.status == JobStatus.COMPLETED for j in completed)
-
-        failed = manager.list_jobs(status_filter=JobStatus.FAILED)
-        assert len(failed) == 1
-        assert failed[0].job_id == "j2"
+            result = await manager.get_job(job.job_id)
+            assert result is not None

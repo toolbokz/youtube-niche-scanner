@@ -106,6 +106,20 @@ class VertexAIConfig(BaseModel):
     cache_ttl_hours: int = 24
 
 
+class VideoProcessingConfig(BaseModel):
+    """Optimised video processing pipeline settings."""
+    enable_stream_copy: bool = True
+    enable_gpu_acceleration: bool = True
+    gpu_encoder: str = "auto"              # auto | h264_nvenc | h264_qsv | h264_videotoolbox | libx264
+    cpu_preset: str = "veryfast"           # ultrafast | superfast | veryfast | faster | fast | medium
+    gpu_preset: str = "fast"               # fast | medium | slow  (NVENC presets)
+    crf: int = 20                          # Constant Rate Factor for CPU encoding
+    max_parallel_clip_tasks: int = 4       # 0 = auto (cpu_count / 2)
+    max_concurrent_video_jobs: int = 2
+    cpu_load_pause_threshold: float = 90.0 # Pause new jobs if CPU% exceeds this
+    memory_load_pause_threshold: float = 85.0  # Pause new jobs if RAM% exceeds this
+
+
 class VideoFactoryConfig(BaseModel):
     """Video Factory pipeline configuration."""
     output_directory: str = "data/video_factory"
@@ -142,6 +156,7 @@ class Settings(BaseModel):
     reports: ReportsConfig = ReportsConfig()
     vertex_ai: VertexAIConfig = VertexAIConfig()
     video_factory: VideoFactoryConfig = VideoFactoryConfig()
+    video_processing: VideoProcessingConfig = VideoProcessingConfig()
 
     @property
     def is_production(self) -> bool:
@@ -226,6 +241,17 @@ _ENV_MAP: list[tuple[str, tuple[str, ...], type]] = [
     ("GS_VIDEO_FACTORY_EMBED_SUBS",      ("video_factory", "embed_subtitles"),               bool),
     ("GS_ELEVENLABS_API_KEY",            ("video_factory", "elevenlabs_api_key"),             str),
     ("GS_ELEVENLABS_VOICE_ID",           ("video_factory", "elevenlabs_voice_id"),            str),
+    # Video Processing
+    ("GS_VP_STREAM_COPY",               ("video_processing", "enable_stream_copy"),          bool),
+    ("GS_VP_GPU_ACCELERATION",           ("video_processing", "enable_gpu_acceleration"),     bool),
+    ("GS_VP_GPU_ENCODER",               ("video_processing", "gpu_encoder"),                  str),
+    ("GS_VP_CPU_PRESET",                ("video_processing", "cpu_preset"),                   str),
+    ("GS_VP_GPU_PRESET",                ("video_processing", "gpu_preset"),                   str),
+    ("GS_VP_CRF",                       ("video_processing", "crf"),                          int),
+    ("GS_VP_MAX_PARALLEL_CLIPS",        ("video_processing", "max_parallel_clip_tasks"),      int),
+    ("GS_VP_MAX_CONCURRENT_JOBS",       ("video_processing", "max_concurrent_video_jobs"),    int),
+    ("GS_VP_CPU_PAUSE_THRESHOLD",       ("video_processing", "cpu_load_pause_threshold"),     float),
+    ("GS_VP_MEMORY_PAUSE_THRESHOLD",    ("video_processing", "memory_load_pause_threshold"),  float),
 ]
 
 

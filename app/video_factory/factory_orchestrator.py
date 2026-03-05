@@ -2,16 +2,24 @@
 
 Orchestrates the complete compilation video production pipeline:
 
-1. Fetch Compilation Strategy  (via CompilationAnalyzer)
-2. Download Source Videos      (via YouTubeDownloader)
-3. Extract Segments            (via SegmentExtractor)
-4. Validate Clips              (via ClipValidator)
-5. Copyright Safety Check      (via CopyrightGuard)
-6. Build Compilation Timeline  (via CompilationAssembler)
-7. Assemble Final Video        (via CompilationAssembler)
-8. Generate Thumbnail          (via ThumbnailGenerator)
-9. Generate Metadata           (via MetadataGenerator)
-10. Cleanup Temp Files
+1. Detect Hardware            (GPU encoders, CPU cores)
+2. Fetch Compilation Strategy  (via CompilationAnalyzer)
+3. Download Source Videos      (via YouTubeDownloader)
+4. Extract Segments            (stream copy — no encoding)
+5. Validate Clips              (via ClipValidator)
+6. Copyright Safety Check      (via CopyrightGuard)
+7. Build Compilation Timeline  (via CompilationAssembler)
+8. Assemble & Encode Video     (**single-pass** encoding, GPU-accelerated)
+9. Generate Thumbnail          (via ThumbnailGenerator)
+10. Generate Metadata          (via MetadataGenerator)
+11. Cleanup Temp Files
+
+**Optimised architecture:**
+- Clip extraction uses **stream copy** (``-c copy``) — zero encoding overhead.
+- Clips are extracted **in parallel** (bounded by CPU cores).
+- The **only encoding step** is final assembly — one pass.
+- GPU acceleration is **auto-detected** (NVENC → QSV → VideoToolbox → CPU).
+- The ``veryfast`` CPU preset reduces CPU encoding time by ~40-60%.
 
 **No slides, text panels, or placeholder footage are generated.**
 If real video segments cannot be obtained the pipeline FAILS.
@@ -28,6 +36,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
+from app.config.settings import get_settings
+from app.connectors.youtube_search import YouTubeSearchConnector
 from app.core.logging import get_logger
 from app.video_factory.models import (
     JobStatus,
@@ -65,10 +75,17 @@ class FactoryOrchestrator:
         self,
         output_base: str = _OUTPUT_BASE,
         settings: VideoSettings | None = None,
+        yt_search: YouTubeSearchConnector | None = None,
     ) -> None:
         self.output_base = output_base
         self.settings = settings or VideoSettings()
         self._progress_callback: Callable[[str, float], None] | None = None
+
+        if yt_search is not None:
+            self._yt_search = yt_search
+        else:
+            cfg = get_settings()
+            self._yt_search = YouTubeSearchConnector(cfg.connectors.youtube_search)
 
     def set_progress_callback(self, callback: Callable[[str, float], None]) -> None:
         """Set a callback for progress updates: callback(stage_name, pct)."""
@@ -123,6 +140,21 @@ class FactoryOrchestrator:
         logger.info("compilation_pipeline_start", job_id=job_id, niche=niche)
 
         try:
+            # ── Step 0: Detect Hardware ────────────────────────────────
+            from app.video_factory.hardware_detector import get_hardware_capabilities
+
+            vp_cfg = get_settings().video_processing
+            hw = await get_hardware_capabilities(
+                prefer_encoder=vp_cfg.gpu_encoder if vp_cfg.enable_gpu_acceleration else "libx264",
+            )
+            logger.info(
+                "hardware_ready",
+                encoder=hw.recommended_encoder,
+                gpus=hw.available_gpu_encoders,
+                cpus=hw.cpu_count,
+                parallel_clips=vp_cfg.max_parallel_clip_tasks or hw.max_parallel_clips,
+            )
+
             # ── Step 1: Fetch Compilation Strategy ────────────────────
             self._report("fetching_strategy", 5)
             output.status = JobStatus.FETCHING_STRATEGY
@@ -180,7 +212,7 @@ class FactoryOrchestrator:
                     seg["position"] = structure_positions[key]
 
             extraction_result = await self._extract_segments(
-                segments_data, source_lookup, job_id, vs,
+                segments_data, source_lookup, job_id, vs, vp_cfg, hw,
             )
             output.extraction = extraction_result
             logger.info(
@@ -248,7 +280,7 @@ class FactoryOrchestrator:
             self._report("assembling_video", 70)
             output.status = JobStatus.ASSEMBLING_VIDEO
 
-            assembly = await self._assemble_video(timeline, output_dir, vs)
+            assembly = await self._assemble_video(timeline, output_dir, vs, hw, vp_cfg)
             output.assembly = assembly
             logger.info(
                 "step_done", step="assembly",
@@ -363,12 +395,12 @@ class FactoryOrchestrator:
     #  Private stage implementations
     # ══════════════════════════════════════════════════════════════════
 
-    async def _fetch_strategy(self, niche: str):
+    async def _fetch_strategy(self, niche: str, keywords: list[str] | None = None):
         """Fetch a CompilationStrategy from the Compilation Intelligence engine."""
         from app.compilation_engine.engine import CompilationAnalyzer
 
-        analyzer = CompilationAnalyzer()
-        strategy = await analyzer.analyze(niche)
+        analyzer = CompilationAnalyzer(self._yt_search)
+        strategy = await analyzer.analyze(niche, keywords or [niche])
         if not strategy.recommended_segments:
             raise RuntimeError(
                 f"Compilation Intelligence returned no recommended segments for '{niche}'"
@@ -414,14 +446,26 @@ class FactoryOrchestrator:
         source_lookup: dict[str, str],
         job_id: str,
         vs: VideoSettings,
+        vp_cfg: Any = None,
+        hw: Any = None,
     ) -> ExtractionStageResult:
-        """Extract clip segments from downloaded videos."""
+        """Extract clip segments using stream copy + parallel extraction."""
         from app.video_factory.segment_extractor import SegmentExtractor
+
+        # Determine stream copy mode from config
+        use_stream_copy = True
+        max_parallel = 4
+        if vp_cfg is not None:
+            use_stream_copy = vp_cfg.enable_stream_copy
+            max_parallel = vp_cfg.max_parallel_clip_tasks or (
+                hw.max_parallel_clips if hw else 4
+            )
 
         extractor = SegmentExtractor(
             output_base=self.output_base,
-            reencode=vs.reencode_clips,
+            reencode=not use_stream_copy,
             target_resolution=vs.resolution,
+            max_parallel=max_parallel,
         )
         result = await extractor.extract_segments(segments, source_lookup, job_id)
 
@@ -522,11 +566,32 @@ class FactoryOrchestrator:
         timeline: CompilationTimeline,
         output_dir: str,
         vs: VideoSettings,
+        hw: Any = None,
+        vp_cfg: Any = None,
     ) -> AssemblyResult:
-        """Assemble the final video."""
+        """Assemble the final video with single-pass encoding."""
         from app.video_factory.video_assembler import CompilationAssembler
 
-        assembler = CompilationAssembler(settings=vs)
+        # Determine encoder and presets from hardware + config
+        encoder = "libx264"
+        cpu_preset = "veryfast"
+        gpu_preset = "fast"
+        crf = 20
+
+        if vp_cfg is not None:
+            cpu_preset = vp_cfg.cpu_preset
+            gpu_preset = vp_cfg.gpu_preset
+            crf = vp_cfg.crf
+            if vp_cfg.enable_gpu_acceleration and hw and hw.recommended_encoder != "libx264":
+                encoder = hw.recommended_encoder
+
+        assembler = CompilationAssembler(
+            settings=vs,
+            encoder=encoder,
+            cpu_preset=cpu_preset,
+            gpu_preset=gpu_preset,
+            crf=crf,
+        )
         return await assembler.assemble(timeline, output_dir)
 
     async def _generate_thumbnail(

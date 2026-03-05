@@ -15,6 +15,11 @@ from app.video_factory.thumbnail_generator import ThumbnailGenerator
 from app.video_factory.metadata_generator import MetadataGenerator
 from app.video_factory.factory_orchestrator import FactoryOrchestrator
 from app.video_factory.job_manager import FactoryJobManager
+from app.video_factory.hardware_detector import (
+    HardwareCapabilities,
+    get_hardware_capabilities,
+)
+from app.video_factory.job_scheduler import JobScheduler, get_job_scheduler
 
 __all__ = [
     "YouTubeDownloader",
@@ -26,4 +31,8 @@ __all__ = [
     "MetadataGenerator",
     "FactoryOrchestrator",
     "FactoryJobManager",
+    "HardwareCapabilities",
+    "get_hardware_capabilities",
+    "JobScheduler",
+    "get_job_scheduler",
 ]

@@ -163,6 +163,31 @@ class AIInsightRecord(Base):
     )
 
 
+class VideoFactoryJobRecord(Base):
+    """Persisted video factory job — survives server restarts."""
+    __tablename__ = "video_factory_jobs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    job_id = Column(String(32), nullable=False, unique=True, index=True)
+    niche = Column(String(500), nullable=False, index=True)
+    status = Column(String(50), nullable=False, default="queued", index=True)
+    progress_pct = Column(Float, default=0.0)
+    current_stage = Column(String(100), default="queued")
+    stages_completed = Column(JSON, default=list)
+    error = Column(Text, default="")
+    config = Column(JSON, default=dict)
+    settings_json = Column(JSON, default=dict)
+    output_json = Column(JSON, default=dict)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("idx_vf_job_status", "status", "created_at"),
+        Index("idx_vf_job_niche", "niche"),
+    )
+
+
 # ── Engine / Session ───────────────────────────────────────────────────────────
 
 _engine = None

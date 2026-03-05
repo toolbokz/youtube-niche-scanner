@@ -128,6 +128,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     setup_logging(settings.app.log_level)
     await init_db()
     _pipeline = PipelineOrchestrator()
+
+    # Clean up jobs orphaned by previous server shutdown
+    from app.video_factory.job_manager import get_job_manager
+    cleaned = await get_job_manager().cleanup_orphaned_jobs()
+    if cleaned:
+        logger.info("orphaned_jobs_cleaned_on_startup", count=cleaned)
+
     logger.info("api_started", version=settings.app.version)
     yield
     if _pipeline:
@@ -728,7 +735,7 @@ def create_app() -> FastAPI:
         from app.video_factory.job_manager import get_job_manager
 
         manager = get_job_manager()
-        job = manager.get_job(job_id)
+        job = await manager.get_job(job_id)
 
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
@@ -806,7 +813,7 @@ def create_app() -> FastAPI:
         from app.video_factory.job_manager import get_job_manager
 
         manager = get_job_manager()
-        job = manager.get_job(job_id)
+        job = await manager.get_job(job_id)
 
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
@@ -852,7 +859,7 @@ def create_app() -> FastAPI:
             except ValueError:
                 pass
 
-        jobs = manager.list_jobs(status_filter=status_filter, limit=limit)
+        jobs = await manager.list_jobs(status_filter=status_filter, limit=limit)
 
         return {
             "jobs": [
@@ -939,7 +946,7 @@ def create_app() -> FastAPI:
         from app.video_factory.job_manager import get_job_manager
 
         manager = get_job_manager()
-        job = manager.get_job(job_id)
+        job = await manager.get_job(job_id)
 
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
@@ -998,7 +1005,7 @@ def create_app() -> FastAPI:
         from app.video_factory.job_manager import get_job_manager
 
         manager = get_job_manager()
-        job = manager.get_job(job_id)
+        job = await manager.get_job(job_id)
 
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
@@ -1069,7 +1076,7 @@ def create_app() -> FastAPI:
         from app.video_factory.job_manager import get_job_manager
 
         manager = get_job_manager()
-        job = manager.get_job(job_id)
+        job = await manager.get_job(job_id)
 
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
@@ -1082,9 +1089,8 @@ def create_app() -> FastAPI:
                 shutil.rmtree(output_dir, ignore_errors=True)
                 files_deleted = True
 
-        # Remove from in-memory jobs
-        if job_id in manager.jobs:
-            del manager.jobs[job_id]
+        # Remove from DB + memory
+        await manager.delete_job(job_id)
 
         logger.info("factory_job_deleted", job_id=job_id, files_deleted=files_deleted)
 

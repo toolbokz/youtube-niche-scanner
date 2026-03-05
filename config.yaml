@@ -95,3 +95,15 @@ video_factory:
   background_music_volume: 0.15
   elevenlabs_api_key: ""
   elevenlabs_voice_id: ""
+
+video_processing:
+  enable_stream_copy: true
+  enable_gpu_acceleration: true
+  gpu_encoder: "auto"                  # auto | h264_nvenc | h264_qsv | h264_videotoolbox | libx264
+  cpu_preset: "veryfast"
+  gpu_preset: "fast"
+  crf: 20
+  max_parallel_clip_tasks: 4           # 0 = auto (cpu_count / 2)
+  max_concurrent_video_jobs: 2
+  cpu_load_pause_threshold: 90.0
+  memory_load_pause_threshold: 85.0

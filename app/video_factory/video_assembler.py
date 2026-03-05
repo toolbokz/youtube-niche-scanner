@@ -4,11 +4,12 @@ Assembles a final compilation video from real extracted clip segments
 using ffmpeg's concat demuxer.  **No slides, text panels, or
 placeholder footage** — only real video clips are used.
 
-The assembler:
-1. Builds a compilation timeline from validated clips
-2. Creates an ffmpeg concat file referencing all clip files
-3. Concatenates clips with optional crossfade transitions
-4. Outputs a single MP4 ready for YouTube upload
+**Optimised single-pass encoding architecture:**
+
+1. Clips are extracted with stream copy (no encoding)
+2. Timeline is built from validated clips
+3. The **only encoding step** happens here — concat + encode in one pass
+4. GPU acceleration is auto-detected and used when available
 """
 from __future__ import annotations
 
@@ -38,18 +39,35 @@ class CompilationAssembler:
         User-configurable settings (resolution, orientation, etc.).
     config : AssemblyConfig, optional
         Lower-level assembly config (fps, codec opts).
+    encoder : str
+        Encoder to use — e.g. ``h264_nvenc``, ``h264_qsv``, ``libx264``.
+        Defaults to ``libx264`` (CPU).
+    cpu_preset : str
+        x264 preset for CPU encoding (``veryfast`` recommended).
+    gpu_preset : str
+        NVENC preset for GPU encoding.
+    crf : int
+        Constant Rate Factor for CPU encoding quality.
     """
 
     def __init__(
         self,
         settings: VideoSettings | None = None,
         config: AssemblyConfig | None = None,
+        encoder: str = "libx264",
+        cpu_preset: str = "veryfast",
+        gpu_preset: str = "fast",
+        crf: int = 20,
     ) -> None:
         self.settings = settings or VideoSettings()
         self.config = config or AssemblyConfig(
             resolution=self.settings.resolution,
             use_gpu=self.settings.use_gpu,
         )
+        self.encoder = encoder
+        self.cpu_preset = cpu_preset
+        self.gpu_preset = gpu_preset
+        self.crf = crf
 
     # ── Timeline Building ──────────────────────────────────────────────
 
@@ -127,7 +145,7 @@ class CompilationAssembler:
         )
         return timeline
 
-    # ── Video Assembly ─────────────────────────────────────────────────
+    # ── Video Assembly — Single-pass encoding ──────────────────────────
 
     async def assemble(
         self,
@@ -136,7 +154,8 @@ class CompilationAssembler:
     ) -> AssemblyResult:
         """Assemble the final compilation video from timeline clips.
 
-        Uses ffmpeg concat demuxer to join clips into a single MP4.
+        Uses ffmpeg concat demuxer to join stream-copied clips and
+        encode the final video in a **single pass**.
 
         Parameters
         ----------
@@ -164,8 +183,8 @@ class CompilationAssembler:
         concat_file = os.path.join(output_dir, "_concat_list.txt")
         self._write_concat_file(timeline, concat_file)
 
-        # Run ffmpeg concat
-        success = await self._concat_with_ffmpeg(concat_file, draft_path)
+        # Run single-pass encoding
+        success = await self._encode_final(concat_file, draft_path)
 
         if not success:
             raise RuntimeError(
@@ -190,6 +209,7 @@ class CompilationAssembler:
             size_mb=result.file_size_mb,
             duration=result.duration_seconds,
             clips=result.clips_used,
+            encoder=self.encoder,
         )
         return result
 
@@ -217,52 +237,72 @@ class CompilationAssembler:
 
         logger.debug("concat_file_written", path=concat_path, entries=len(lines))
 
-    async def _concat_with_ffmpeg(
+    def _build_encoder_args(self) -> list[str]:
+        """Build encoder-specific FFmpeg arguments.
+
+        Returns the codec/preset/quality args for one encoding pass.
+        """
+        is_gpu = self.encoder != "libx264"
+
+        if is_gpu:
+            # GPU encoder (NVENC / QSV / VideoToolbox)
+            args = [
+                "-c:v", self.encoder,
+                "-preset", self.gpu_preset,
+                "-c:a", "aac", "-b:a", "192k",
+            ]
+            # NVENC-specific quality settings
+            if self.encoder == "h264_nvenc":
+                args.extend(["-rc", "vbr", "-cq", str(self.crf)])
+        else:
+            # CPU encoder
+            args = [
+                "-c:v", "libx264",
+                "-preset", self.cpu_preset,
+                "-crf", str(self.crf),
+                "-c:a", "aac", "-b:a", "192k",
+            ]
+
+        # Resolution scaling/padding for uniform output
+        w, h = self.config.resolution.split("x")
+        scale_filter = (
+            f"scale={w}:{h}:force_original_aspect_ratio=decrease,"
+            f"pad={w}:{h}:(ow-iw)/2:(oh-ih)/2:color=black,"
+            f"setsar=1"
+        )
+        args.extend(["-vf", scale_filter])
+
+        return args
+
+    async def _encode_final(
         self,
         concat_file: str,
         output_path: str,
     ) -> bool:
-        """Run ffmpeg concat demuxer to join clips.
+        """Run the single-pass final encode.
 
-        Tries GPU encoding first (h264_nvenc), falls back to libx264.
-        Since clips are already re-encoded to uniform resolution/codec
-        by the segment extractor, we can use stream copy for speed.
-        However, if transitions are needed we must re-encode.
+        Tries the configured encoder first, then falls back through
+        GPU → CPU if the primary encoder fails.
         """
-        use_stream_copy = self.settings.transition_style == "cut"
+        # Primary attempt with configured encoder
+        encoder_args = self._build_encoder_args()
+        success = await self._run_concat_cmd(concat_file, output_path, encoder_args)
+        if success:
+            return True
 
-        if use_stream_copy:
-            # Fast path: stream copy (no transitions)
-            success = await self._run_concat_cmd(
-                concat_file, output_path,
-                codec_args=["-c", "copy"],
+        # If GPU encoder failed, fall back to CPU
+        if self.encoder != "libx264":
+            logger.info(
+                "gpu_encoder_failed_fallback_to_cpu",
+                primary=self.encoder,
             )
+            self.encoder = "libx264"
+            fallback_args = self._build_encoder_args()
+            success = await self._run_concat_cmd(concat_file, output_path, fallback_args)
             if success:
                 return True
 
-        # Re-encode path (supports transitions / ensures compatibility)
-        # Try GPU first
-        if self.config.use_gpu:
-            success = await self._run_concat_cmd(
-                concat_file, output_path,
-                codec_args=[
-                    "-c:v", "h264_nvenc", "-preset", "fast",
-                    "-c:a", "aac", "-b:a", "192k",
-                ],
-            )
-            if success:
-                return True
-            logger.info("nvenc_unavailable_falling_back_to_libx264")
-
-        # CPU fallback
-        success = await self._run_concat_cmd(
-            concat_file, output_path,
-            codec_args=[
-                "-c:v", "libx264", "-preset", "fast", "-crf", "20",
-                "-c:a", "aac", "-b:a", "192k",
-            ],
-        )
-        return success
+        return False
 
     async def _run_concat_cmd(
         self,
