@@ -291,20 +291,32 @@ def video_factory_cmd(niche: str, voice: str | None, resolution: str | None, no_
 async def _run_video_factory(niche: str, voice: str | None, resolution: str | None, embed_subs: bool) -> None:
     """Execute the Video Factory pipeline."""
     from app.video_factory.factory_orchestrator import FactoryOrchestrator
+    from app.video_factory.models import VoiceConfig, AssemblyConfig
 
     settings = get_settings()
     vf_cfg = settings.video_factory
 
     voice_provider = voice or vf_cfg.voice_provider
     res = resolution or vf_cfg.resolution
-    output_dir = Path(vf_cfg.output_directory) / niche.lower().replace(" ", "_")
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_base = str(Path(vf_cfg.output_directory))
 
-    orchestrator = FactoryOrchestrator()
+    voice_config = VoiceConfig(provider=voice_provider, voice_name=vf_cfg.voice_name)
+    assembly_config = AssemblyConfig(
+        resolution=res,
+        embed_subtitles=embed_subs,
+        use_gpu=vf_cfg.use_gpu,
+    )
 
-    def _progress(step: int, total: int, label: str) -> None:
-        pct = int(step / total * 100)
-        console.print(f"  [{pct:3d}%] {label}")
+    orchestrator = FactoryOrchestrator(
+        output_base=output_base,
+        voice_config=voice_config,
+        assembly_config=assembly_config,
+    )
+
+    def _progress(stage: str, pct: float) -> None:
+        console.print(f"  [{int(pct):3d}%] {stage}")
+
+    orchestrator.set_progress_callback(_progress)
 
     try:
         with Progress(
@@ -316,11 +328,8 @@ async def _run_video_factory(niche: str, voice: str | None, resolution: str | No
 
             result = await orchestrator.run(
                 niche=niche,
-                output_dir=output_dir,
-                voice_provider=voice_provider,
-                resolution=res,
-                embed_subtitles=embed_subs,
-                progress_callback=_progress,
+                voice_config=voice_config,
+                assembly_config=assembly_config,
             )
 
             progress.update(task, description="[green]Pipeline complete!")
@@ -329,9 +338,9 @@ async def _run_video_factory(niche: str, voice: str | None, resolution: str | No
         console.print(Panel(
             f"[bold green]Video Factory Complete![/bold green]\n\n"
             f"Concept: [yellow]{result.concept.title if result.concept else 'N/A'}[/yellow]\n"
-            f"Video: {result.assembly.video_path if result.assembly else 'N/A'}\n"
-            f"Thumbnail: {result.thumbnail.image_path if result.thumbnail else 'N/A'}\n"
-            f"Subtitles: {result.subtitles.srt_path if result.subtitles else 'N/A'}\n"
+            f"Video: {result.video_path or 'N/A'}\n"
+            f"Thumbnail: {result.thumbnail_path or 'N/A'}\n"
+            f"Subtitles: {result.subtitles_path or 'N/A'}\n"
             f"Title: {result.metadata.title if result.metadata else 'N/A'}",
             title="✅ Done",
             border_style="green",

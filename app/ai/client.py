@@ -49,15 +49,21 @@ class VertexAIClient:
         self.project = project or os.environ.get("GOOGLE_CLOUD_PROJECT", "")
         self.region = region or os.environ.get("VERTEX_REGION", _DEFAULT_REGION)
         self._initialised = False
+        self._init_failed: str = ""  # non-empty when init already failed
         self._flash_model: Any = None
         self._pro_model: Any = None
 
     # ── Lazy init ─────────────────────────────────────────────────────
 
     def _ensure_init(self) -> None:
-        """Initialise Vertex AI SDK on first use."""
+        """Initialise Vertex AI SDK on first use.
+
+        Caches failures so the slow init is not retried on every call.
+        """
         if self._initialised:
             return
+        if self._init_failed:
+            raise RuntimeError(self._init_failed)
 
         try:
             import vertexai
@@ -74,12 +80,14 @@ class VertexAIClient:
                 region=self.region,
             )
         except Exception as exc:
-            logger.error("vertex_ai_init_failed", error=str(exc))
-            raise RuntimeError(
+            msg = (
                 f"Vertex AI initialisation failed: {exc}.  "
                 "Ensure GOOGLE_APPLICATION_CREDENTIALS, GOOGLE_CLOUD_PROJECT "
                 "and VERTEX_REGION are set."
-            ) from exc
+            )
+            self._init_failed = msg
+            logger.error("vertex_ai_init_failed", error=str(exc))
+            raise RuntimeError(msg) from exc
 
     @property
     def available(self) -> bool:

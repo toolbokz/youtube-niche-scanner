@@ -115,7 +115,12 @@ class FactoryJobManager:
         voice_config: VoiceConfig | None,
         assembly_config: AssemblyConfig | None,
     ) -> None:
-        """Run a job in the background with concurrency control."""
+        """Run a job in the background with concurrency control.
+
+        The pipeline contains synchronous blocking calls (Vertex AI SDK,
+        ffmpeg, etc.) so we run the orchestrator in a thread to avoid
+        blocking the async event loop.
+        """
         async with self._semaphore:
             job = self._jobs.get(job_id)
             if not job:
@@ -145,11 +150,19 @@ class FactoryJobManager:
 
                 orchestrator.set_progress_callback(_on_progress)
 
-                output = await orchestrator.run(
-                    niche=niche,
-                    job_id=job_id,
-                    voice_config=voice_config,
-                    assembly_config=assembly_config,
+                # Run in a thread so synchronous AI/ffmpeg calls
+                # don't block the event loop.
+                loop = asyncio.get_running_loop()
+                output = await loop.run_in_executor(
+                    None,
+                    lambda: asyncio.run(
+                        orchestrator.run(
+                            niche=niche,
+                            job_id=job_id,
+                            voice_config=voice_config,
+                            assembly_config=assembly_config,
+                        )
+                    ),
                 )
 
                 job.output = output

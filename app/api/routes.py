@@ -79,6 +79,31 @@ class AsyncAnalyzeRequest(BaseModel):
     videos_per_niche: int = Field(default=10, ge=1, le=30)
 
 
+class VideoFactoryStartRequest(BaseModel):
+    """Request body for starting a video factory job."""
+    niche: str = Field(..., min_length=1, description="YouTube niche to produce a video for")
+    voice_provider: str = Field(default="google_tts", description="TTS provider: google_tts | elevenlabs | edge_tts")
+    voice_name: str = Field(default="en-US-Neural2-D", description="Voice model name")
+    resolution: str = Field(default="1920x1080", description="Video resolution")
+    embed_subtitles: bool = Field(default=True, description="Burn subtitles into video")
+    use_gpu: bool = Field(default=True, description="Use GPU acceleration for rendering")
+
+
+class VideoFactoryJobResponse(BaseModel):
+    """Video factory job status response."""
+    job_id: str
+    niche: str
+    status: str
+    progress_pct: float
+    current_stage: str
+    stages_completed: list[str]
+    error: str = ""
+    created_at: str
+    updated_at: str
+    completed_at: str | None = None
+    output_files: dict[str, str] | None = None
+
+
 # ── Background task tracker ────────────────────────────────────────────────────
 
 _bg_tasks: dict[str, dict[str, Any]] = {}  # task_id → {status, result, ...}
@@ -647,31 +672,8 @@ def create_app() -> FastAPI:
 
     # ── Video Factory endpoints ────────────────────────────────────────
 
-    class VideoFactoryStartRequest(BaseModel):
-        """Request body for starting a video factory job."""
-        niche: str = Field(..., min_length=1, description="YouTube niche to produce a video for")
-        voice_provider: str = Field(default="google_tts", description="TTS provider: google_tts | elevenlabs | edge_tts")
-        voice_name: str = Field(default="en-US-Neural2-D", description="Voice model name")
-        resolution: str = Field(default="1920x1080", description="Video resolution")
-        embed_subtitles: bool = Field(default=True, description="Burn subtitles into video")
-        use_gpu: bool = Field(default=True, description="Use GPU acceleration for rendering")
-
-    class VideoFactoryJobResponse(BaseModel):
-        """Video factory job status response."""
-        job_id: str
-        niche: str
-        status: str
-        progress_pct: float
-        current_stage: str
-        stages_completed: list[str]
-        error: str = ""
-        created_at: str
-        updated_at: str
-        completed_at: str | None = None
-        output_files: dict[str, str] | None = None
-
     @app.post("/video-factory/start")
-    async def video_factory_start(request: VideoFactoryStartRequest) -> dict[str, Any]:
+    async def video_factory_start(body: VideoFactoryStartRequest) -> dict[str, Any]:
         """Start a new video factory job.
 
         Launches the full automated video production pipeline in the background.
@@ -683,17 +685,17 @@ def create_app() -> FastAPI:
         manager = get_job_manager()
 
         voice_config = VoiceConfig(
-            provider=request.voice_provider,
-            voice_name=request.voice_name,
+            provider=body.voice_provider,
+            voice_name=body.voice_name,
         )
         assembly_config = AssemblyConfig(
-            resolution=request.resolution,
-            embed_subtitles=request.embed_subtitles,
-            use_gpu=request.use_gpu,
+            resolution=body.resolution,
+            embed_subtitles=body.embed_subtitles,
+            use_gpu=body.use_gpu,
         )
 
         job = await manager.submit_job(
-            niche=request.niche,
+            niche=body.niche,
             voice_config=voice_config,
             assembly_config=assembly_config,
         )
@@ -702,7 +704,7 @@ def create_app() -> FastAPI:
             "status": "accepted",
             "job_id": job.job_id,
             "niche": job.niche,
-            "message": f"Video factory job started for niche: {request.niche}",
+            "message": f"Video factory job started for niche: {body.niche}",
         }
 
     @app.get("/video-factory/status/{job_id}")
@@ -737,8 +739,16 @@ def create_app() -> FastAPI:
             "updated_at": job.updated_at.isoformat(),
             "completed_at": job.completed_at.isoformat() if job.completed_at else None,
             "output_files": output_files,
-            "concept": job.output.concept.model_dump() if job.output and job.output.concept.title else None,
-            "metadata": job.output.metadata.model_dump() if job.output and job.output.metadata.title else None,
+            "concept": (
+                job.output.concept.model_dump()
+                if job.output and job.output.concept and job.output.concept.title
+                else None
+            ),
+            "metadata": (
+                job.output.metadata.model_dump()
+                if job.output and job.output.metadata and job.output.metadata.title
+                else None
+            ),
         }
 
     @app.get("/video-factory/download/{job_id}")
