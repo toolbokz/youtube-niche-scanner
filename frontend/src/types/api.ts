@@ -182,6 +182,73 @@ export interface ThumbnailPatternResult {
     recommendations: string[];
 }
 
+// ── Compilation Video Intelligence ────────────────────────────────────────────
+
+export interface CompilationSourceVideo {
+    video_id: string;
+    title: string;
+    channel_name: string;
+    view_count: number;
+    duration_seconds: number;
+    published_date: string;
+    url: string;
+    engagement_score: number;
+    relevance_score: number;
+    compilation_fit_notes: string;
+}
+
+export interface CompilationSegment {
+    source_video_id: string;
+    source_video_title: string;
+    timestamp_start: string;
+    timestamp_end: string;
+    duration_seconds: number;
+    segment_theme: string;
+    energy_level: 'low' | 'medium' | 'high' | 'climax';
+    why_include: string;
+}
+
+export interface CompilationStructureItem {
+    position: number;
+    segment_type: 'intro_hook' | 'reveal' | 'surprise' | 'educational' | 'dramatic' | 'payoff' | 'outro_cta' | 'transition';
+    segment: CompilationSegment | null;
+    duration_seconds: number;
+    notes: string;
+}
+
+export interface EditingGuidance {
+    transition_style: string;
+    text_overlays: string[];
+    sound_effects: string[];
+    background_music_style: string;
+    pacing_notes: string;
+    color_grading_tips: string;
+    audio_mixing_tips: string;
+}
+
+export interface FinalVideoConcept {
+    title: string;
+    description: string;
+    tags: string[];
+    target_audience: string;
+    emotional_hook: string;
+    watch_time_strategy: string;
+    estimated_duration_minutes: number;
+    thumbnail_idea: string;
+}
+
+export interface CompilationStrategy {
+    niche: string;
+    source_videos: CompilationSourceVideo[];
+    recommended_segments: CompilationSegment[];
+    video_structure: CompilationStructureItem[];
+    editing_guidance: EditingGuidance;
+    final_video_concept: FinalVideoConcept;
+    ai_refinements: Record<string, unknown>;
+    compilation_score: number;
+    total_source_videos_found: number;
+}
+
 // ── API Response Envelope ─────────────────────────────────────────────────────
 
 export interface AnalyzeResponse {

@@ -15,12 +15,14 @@ import {
     ChevronLeft,
     ChevronRight,
     TrendingUp,
+    Film,
 } from 'lucide-react';
 
 const navigation = [
     { name: 'Dashboard', href: '/', icon: LayoutDashboard },
     { name: 'Discover Niches', href: '/discover', icon: Compass },
     { name: 'Video Strategy', href: '/strategy', icon: Video },
+    { name: 'Compilation', href: '/compilation', icon: Film },
     { name: 'Thumbnail Insights', href: '/thumbnails', icon: Image },
     { name: 'Reports', href: '/reports', icon: FileText },
     { name: 'System', href: '/system', icon: Settings },

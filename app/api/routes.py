@@ -429,6 +429,48 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=503, detail=result["error"])
         return {"status": "success", "trend_forecast": result}
 
+    # ── Compilation Video Intelligence ───────────────────────────────
+
+    @app.get("/compilation-strategy")
+    async def compilation_strategy(
+        niche: str = Query(..., description="Niche name to generate compilation strategy for"),
+        keywords: str = Query(default="", description="Comma-separated keywords (optional)"),
+        use_ai: bool = Query(default=True, description="Enable AI refinement"),
+    ) -> dict[str, Any]:
+        """Generate a compilation video strategy for a niche.
+
+        Discovers the best source videos, recommends clip segments,
+        assembles a paced timeline, and (optionally) refines via AI.
+        """
+        from app.compilation_engine.engine import CompilationAnalyzer
+        from app.connectors.youtube_search import YouTubeSearchConnector
+
+        if _pipeline is None:
+            raise HTTPException(status_code=503, detail="Pipeline not initialized")
+
+        kw_list = [k.strip() for k in keywords.split(",") if k.strip()]
+
+        # Try to find stored keywords for this niche from latest report
+        if not kw_list:
+            report_dir = Path(get_settings().reports.output_directory)
+            latest = _latest_report_json(report_dir)
+            if latest:
+                for n in latest.get("top_niches", []):
+                    if n.get("niche", "").lower() == niche.lower():
+                        kw_list = n.get("keywords", [])
+                        break
+
+        try:
+            analyzer = CompilationAnalyzer(_pipeline.yt_search)
+            strategy = await analyzer.analyze(niche, kw_list, use_ai=use_ai)
+            return {
+                "status": "success",
+                "compilation_strategy": strategy.model_dump(mode="json"),
+            }
+        except Exception as e:
+            logger.error("compilation_strategy_error", niche=niche, error=str(e))
+            raise HTTPException(status_code=500, detail=str(e))
+
     # ── Reports endpoints ──────────────────────────────────────────────
 
     @app.get("/reports")

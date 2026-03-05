@@ -278,6 +278,42 @@ async def get_quick_niche_insight(niche_data: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+async def generate_compilation_strategy(
+    niche_name: str,
+    source_videos_json: str,
+    segments_json: str,
+    structure_json: str,
+) -> dict[str, Any]:
+    """Ask Gemini to refine a compilation video strategy.
+
+    Returns the full AI-enhanced strategy dict (refined_structure,
+    editing_guidance, final_video_concept, pacing_analysis, etc.).
+    """
+    cache_extra = f"{niche_name}:{len(source_videos_json)}"
+    cached = await _get_cached("compilation_strategy", niche_name, cache_extra)
+    if cached:
+        return cached
+
+    client = get_ai_client()
+    if not client.available:
+        return {"error": "Vertex AI not configured"}
+
+    from app.ai.prompts.compilation_analysis import compilation_strategy_prompt
+
+    prompt = compilation_strategy_prompt(niche_name, source_videos_json, segments_json, structure_json)
+    t0 = time.time()
+    result = client.generate_json(prompt, use_pro=True)
+    elapsed = round(time.time() - t0, 2)
+
+    if result is None:
+        return {"error": "AI generation failed"}
+
+    result["_generation_time_s"] = elapsed
+    await _store_cache("compilation_strategy", niche_name, result, cache_extra)
+    logger.info("ai_compilation_strategy_done", niche=niche_name, time_s=elapsed)
+    return result
+
+
 async def run_full_ai_analysis(report_data: dict[str, Any]) -> dict[str, Any]:
     """Run all AI analyses on a completed report — **parallelized**.
 

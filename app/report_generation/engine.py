@@ -39,6 +39,7 @@ class ReportGenerationEngine:
         viral_opportunities: dict[str, list[ViralOpportunity]] | None = None,
         topic_velocities: dict[str, TopicVelocityResult] | None = None,
         thumbnail_patterns: dict[str, ThumbnailPatternResult] | None = None,
+        compilation_strategies: list[dict[str, Any]] | None = None,
         ai_insights: dict[str, Any] | None = None,
     ) -> NicheReport:
         """Build the complete report model."""
@@ -50,6 +51,7 @@ class ReportGenerationEngine:
             viral_opportunities=viral_opportunities or {},
             topic_velocities=topic_velocities or {},
             thumbnail_patterns=thumbnail_patterns or {},
+            compilation_strategies=compilation_strategies or [],
             ai_insights=ai_insights or {},
             metadata=metadata or {},
         )
@@ -449,6 +451,55 @@ class ReportGenerationEngine:
 
                 lines.append("")
                 lines.append("---")
+                lines.append("")
+
+        # ── Compilation Strategies ──
+        if hasattr(report, "compilation_strategies") and report.compilation_strategies:
+            lines.append("## Compilation Video Strategies")
+            lines.append("")
+
+            for comp in report.compilation_strategies:
+                lines.append(f"### {comp.get('niche', 'Unknown')} Compilation")
+                lines.append(f"\n**Compilation Score:** {comp.get('compilation_score', 0)}/100")
+                lines.append(f"**Source Videos Found:** {comp.get('total_source_videos_found', 0)}")
+
+                concept = comp.get("final_video_concept", {})
+                if concept:
+                    lines.append(f"\n**Suggested Title:** {concept.get('title', 'N/A')}")
+                    lines.append(f"**Duration:** ~{concept.get('estimated_duration_minutes', 0)} min")
+                    lines.append(f"**Target Audience:** {concept.get('target_audience', 'N/A')}")
+                    if concept.get("description"):
+                        lines.append(f"\n**Description:**\n> {concept['description'][:300]}")
+
+                sources = comp.get("source_videos", [])
+                if sources:
+                    lines.append("\n**Top Source Videos:**\n")
+                    lines.append("| # | Title | Views | Engagement |")
+                    lines.append("|---|-------|-------|------------|")
+                    for i, sv in enumerate(sources[:10], 1):
+                        title = sv.get("title", "")[:50]
+                        views = f"{sv.get('view_count', 0):,}"
+                        eng = f"{sv.get('engagement_score', 0)}/100"
+                        lines.append(f"| {i} | {title} | {views} | {eng} |")
+
+                structure = comp.get("video_structure", [])
+                if structure:
+                    lines.append(f"\n**Timeline ({len(structure)} clips):**\n")
+                    for item in structure[:12]:
+                        seg = item.get("segment")
+                        seg_title = seg.get("source_video_title", "")[:30] if seg else "—"
+                        lines.append(
+                            f"- **{item.get('position', 0)}.** "
+                            f"[{item.get('segment_type', '')}] "
+                            f"{seg_title} ({item.get('duration_seconds', 0)}s)"
+                        )
+
+                editing = comp.get("editing_guidance", {})
+                if editing:
+                    lines.append(f"\n**Editing:** {editing.get('transition_style', '')}")
+                    lines.append(f"**Music:** {editing.get('background_music_style', '')}")
+                    lines.append(f"**Pacing:** {editing.get('pacing_notes', '')}")
+
                 lines.append("")
 
         # ── Metadata ──

@@ -5,6 +5,7 @@ import type {
     DiscoverRequest,
     ReportSummary,
     ReportDetail,
+    CompilationStrategy,
 } from '@/types';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -88,6 +89,21 @@ export async function getAIVideoStrategy(niche: string, count = 15) {
 
 export async function getAITrendForecast() {
     return request<{ status: string; trend_forecast: Record<string, unknown> }>('/ai/trend-forecast');
+}
+
+// ── Compilation Video Intelligence ────────────────────────────────────────────
+
+export async function getCompilationStrategy(
+    niche: string,
+    keywords: string[] = [],
+    useAI = true,
+) {
+    const params = new URLSearchParams({ niche });
+    if (keywords.length > 0) params.set('keywords', keywords.join(','));
+    if (!useAI) params.set('use_ai', 'false');
+    return request<{ status: string; compilation_strategy: CompilationStrategy }>(
+        `/compilation-strategy?${params.toString()}`
+    );
 }
 
 // ── Dashboard batch ───────────────────────────────────────────────────────────
