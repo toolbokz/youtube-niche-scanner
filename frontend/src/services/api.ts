@@ -154,6 +154,6 @@ export async function cancelVideoFactoryJob(jobId: string) {
     });
 }
 
-export function getVideoFactoryDownloadUrl(jobId: string, file: 'video' | 'thumbnail' | 'subtitles' | 'metadata') {
+export function getVideoFactoryDownloadUrl(jobId: string, file: 'video' | 'thumbnail' | 'metadata') {
     return `${API_BASE}/video-factory/download/${jobId}?file=${file}`;
 }

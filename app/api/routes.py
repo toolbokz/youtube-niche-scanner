@@ -80,13 +80,13 @@ class AsyncAnalyzeRequest(BaseModel):
 
 
 class VideoFactoryStartRequest(BaseModel):
-    """Request body for starting a video factory job."""
-    niche: str = Field(..., min_length=1, description="YouTube niche to produce a video for")
-    voice_provider: str = Field(default="google_tts", description="TTS provider: google_tts | elevenlabs | edge_tts")
-    voice_name: str = Field(default="en-US-Neural2-D", description="Voice model name")
-    resolution: str = Field(default="1920x1080", description="Video resolution")
-    embed_subtitles: bool = Field(default=True, description="Burn subtitles into video")
+    """Request body for starting a compilation video factory job."""
+    niche: str = Field(..., min_length=1, description="YouTube niche to produce a compilation video for")
+    target_duration_minutes: int = Field(default=8, ge=3, le=15, description="Target video duration: 3 | 5 | 8 | 10 | 15")
+    orientation: str = Field(default="landscape", description="Video orientation: landscape (16:9) | portrait (9:16)")
+    transition_style: str = Field(default="crossfade", description="Transition style: crossfade | cut | fade")
     use_gpu: bool = Field(default=True, description="Use GPU acceleration for rendering")
+    copyright_strict: bool = Field(default=False, description="Fail on copyright warnings")
 
 
 class VideoFactoryJobResponse(BaseModel):
@@ -674,42 +674,46 @@ def create_app() -> FastAPI:
 
     @app.post("/video-factory/start")
     async def video_factory_start(body: VideoFactoryStartRequest) -> dict[str, Any]:
-        """Start a new video factory job.
+        """Start a new compilation video factory job.
 
-        Launches the full automated video production pipeline in the background.
+        Launches the compilation pipeline in the background:
+        strategy → download → extract → validate → copyright → timeline → assemble → thumbnail → metadata.
         Returns a job_id for polling progress via /video-factory/status/{job_id}.
         """
         from app.video_factory.job_manager import get_job_manager
-        from app.video_factory.models import VoiceConfig, AssemblyConfig
+        from app.video_factory.models import VideoSettings, VideoOrientation
 
         manager = get_job_manager()
 
-        voice_config = VoiceConfig(
-            provider=body.voice_provider,
-            voice_name=body.voice_name,
+        orientation = (
+            VideoOrientation.PORTRAIT
+            if body.orientation == "portrait"
+            else VideoOrientation.LANDSCAPE
         )
-        assembly_config = AssemblyConfig(
-            resolution=body.resolution,
-            embed_subtitles=body.embed_subtitles,
+
+        settings = VideoSettings(
+            target_duration_minutes=body.target_duration_minutes,
+            orientation=orientation,
+            transition_style=body.transition_style,
             use_gpu=body.use_gpu,
+            copyright_strict=body.copyright_strict,
         )
 
         job = await manager.submit_job(
             niche=body.niche,
-            voice_config=voice_config,
-            assembly_config=assembly_config,
+            settings=settings,
         )
 
         return {
             "status": "accepted",
             "job_id": job.job_id,
             "niche": job.niche,
-            "message": f"Video factory job started for niche: {body.niche}",
+            "message": f"Compilation video job started for niche: {body.niche}",
         }
 
     @app.get("/video-factory/status/{job_id}")
     async def video_factory_status(job_id: str) -> dict[str, Any]:
-        """Get the status of a video factory job."""
+        """Get the status of a compilation video factory job."""
         from app.video_factory.job_manager import get_job_manager
 
         manager = get_job_manager()
@@ -723,9 +727,24 @@ def create_app() -> FastAPI:
             output_files = {
                 "video": job.output.video_path,
                 "thumbnail": job.output.thumbnail_path,
-                "subtitles": job.output.subtitles_path,
                 "metadata": job.output.metadata_path,
             }
+
+        # Build clips list for the frontend clip editor
+        clips = None
+        if job.output and job.output.extraction.clips:
+            clips = [
+                {
+                    "clip_id": c.clip_id,
+                    "source_video_id": c.source_video_id,
+                    "duration_seconds": c.duration_seconds,
+                    "segment_type": c.segment_type,
+                    "energy_level": c.energy_level,
+                    "position": c.position,
+                    "is_valid": c.is_valid,
+                }
+                for c in job.output.extraction.clips
+            ]
 
         return {
             "job_id": job.job_id,
@@ -739,9 +758,10 @@ def create_app() -> FastAPI:
             "updated_at": job.updated_at.isoformat(),
             "completed_at": job.completed_at.isoformat() if job.completed_at else None,
             "output_files": output_files,
-            "concept": (
-                job.output.concept.model_dump()
-                if job.output and job.output.concept and job.output.concept.title
+            "clips": clips,
+            "strategy": (
+                job.output.strategy_summary
+                if job.output and job.output.strategy_summary
                 else None
             ),
             "metadata": (
@@ -749,6 +769,21 @@ def create_app() -> FastAPI:
                 if job.output and job.output.metadata and job.output.metadata.title
                 else None
             ),
+            "copyright_report": (
+                job.output.copyright_report.model_dump()
+                if job.output and job.output.copyright_report
+                else None
+            ),
+            "timeline_info": (
+                {
+                    "entries": len(job.output.timeline.entries),
+                    "total_duration": job.output.timeline.total_duration_seconds,
+                    "target_duration": job.output.timeline.target_duration_seconds,
+                }
+                if job.output and job.output.timeline.entries
+                else None
+            ),
+            "settings": job.settings.model_dump() if job.settings else None,
         }
 
     @app.get("/video-factory/download/{job_id}")
@@ -770,7 +805,6 @@ def create_app() -> FastAPI:
         file_map = {
             "video": (job.output.video_path, "video/mp4", "video.mp4"),
             "thumbnail": (job.output.thumbnail_path, "image/png", "thumbnail.png"),
-            "subtitles": (job.output.subtitles_path, "text/plain", "subtitles.srt"),
             "metadata": (job.output.metadata_path, "application/json", "metadata.json"),
         }
 

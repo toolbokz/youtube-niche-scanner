@@ -1,6 +1,6 @@
 """Video Factory — Job Manager.
 
-Manages video factory jobs with concurrent execution,
+Manages compilation video factory jobs with concurrent execution,
 progress tracking, and background worker support.
 """
 from __future__ import annotations
@@ -16,8 +16,7 @@ from app.video_factory.models import (
     JobStatus,
     FactoryJob,
     VideoFactoryOutput,
-    VoiceConfig,
-    AssemblyConfig,
+    VideoSettings,
 )
 
 logger = get_logger(__name__)
@@ -61,11 +60,10 @@ class FactoryJobManager:
     async def submit_job(
         self,
         niche: str,
-        voice_config: VoiceConfig | None = None,
-        assembly_config: AssemblyConfig | None = None,
+        settings: VideoSettings | None = None,
         config: dict[str, Any] | None = None,
     ) -> FactoryJob:
-        """Submit a new video factory job.
+        """Submit a new compilation video factory job.
 
         The job starts processing in the background immediately
         (subject to concurrency limits).
@@ -73,11 +71,9 @@ class FactoryJobManager:
         Parameters
         ----------
         niche : str
-            The niche to produce a video for.
-        voice_config : VoiceConfig, optional
-            Voice synthesis configuration.
-        assembly_config : AssemblyConfig, optional
-            Video assembly configuration.
+            The niche to produce a compilation video for.
+        settings : VideoSettings, optional
+            Video production settings.
         config : dict, optional
             Extra configuration.
 
@@ -87,6 +83,7 @@ class FactoryJobManager:
             The created job with its ID and initial status.
         """
         job_id = uuid.uuid4().hex[:12]
+        vs = settings or VideoSettings()
 
         job = FactoryJob(
             job_id=job_id,
@@ -95,6 +92,7 @@ class FactoryJobManager:
             progress_pct=0.0,
             current_stage="queued",
             config=config or {},
+            settings=vs,
         )
         self._jobs[job_id] = job
 
@@ -102,7 +100,7 @@ class FactoryJobManager:
 
         # Start background processing
         task = asyncio.create_task(
-            self._run_job(job_id, niche, voice_config, assembly_config)
+            self._run_job(job_id, niche, vs)
         )
         self._tasks[job_id] = task
 
@@ -112,13 +110,12 @@ class FactoryJobManager:
         self,
         job_id: str,
         niche: str,
-        voice_config: VoiceConfig | None,
-        assembly_config: AssemblyConfig | None,
+        settings: VideoSettings,
     ) -> None:
         """Run a job in the background with concurrency control.
 
-        The pipeline contains synchronous blocking calls (Vertex AI SDK,
-        ffmpeg, etc.) so we run the orchestrator in a thread to avoid
+        The pipeline contains synchronous blocking calls (ffmpeg,
+        yt-dlp, etc.) so we run the orchestrator in a thread to avoid
         blocking the async event loop.
         """
         async with self._semaphore:
@@ -129,10 +126,7 @@ class FactoryJobManager:
             try:
                 from app.video_factory.factory_orchestrator import FactoryOrchestrator
 
-                orchestrator = FactoryOrchestrator(
-                    voice_config=voice_config,
-                    assembly_config=assembly_config,
-                )
+                orchestrator = FactoryOrchestrator(settings=settings)
 
                 # Wire up progress tracking
                 def _on_progress(stage: str, pct: float) -> None:
@@ -150,7 +144,7 @@ class FactoryJobManager:
 
                 orchestrator.set_progress_callback(_on_progress)
 
-                # Run in a thread so synchronous AI/ffmpeg calls
+                # Run in a thread so synchronous ffmpeg/yt-dlp calls
                 # don't block the event loop.
                 loop = asyncio.get_running_loop()
                 output = await loop.run_in_executor(
@@ -159,8 +153,7 @@ class FactoryJobManager:
                         orchestrator.run(
                             niche=niche,
                             job_id=job_id,
-                            voice_config=voice_config,
-                            assembly_config=assembly_config,
+                            settings=settings,
                         )
                     ),
                 )

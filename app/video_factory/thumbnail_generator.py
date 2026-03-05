@@ -1,4 +1,4 @@
-"""Video Factory — Step 8: Thumbnail Generation.
+"""Video Factory — Thumbnail Generation.
 
 Generates a YouTube thumbnail concept via AI and optionally creates
 an actual thumbnail image using Pillow.
@@ -10,11 +10,9 @@ from typing import Any
 
 from app.core.logging import get_logger
 from app.video_factory.models import (
-    VideoConcept,
     ThumbnailConcept,
     ThumbnailResult,
 )
-from app.video_factory.prompts import thumbnail_concept_prompt
 
 logger = get_logger(__name__)
 
@@ -29,7 +27,7 @@ class ThumbnailGenerator:
     async def generate(
         self,
         niche: str,
-        concept: VideoConcept,
+        concept: Any,
         output_dir: str,
     ) -> ThumbnailResult:
         """Generate a thumbnail concept and image.
@@ -74,14 +72,22 @@ class ThumbnailGenerator:
         return result
 
     async def _generate_concept(
-        self, niche: str, concept: VideoConcept
+        self, niche: str, concept: Any
     ) -> ThumbnailConcept:
         """Generate a thumbnail concept using AI."""
+        title = getattr(concept, "title", str(concept))
+        description = getattr(concept, "concept", niche)
         try:
             from app.ai.client import get_ai_client
 
             client = get_ai_client()
-            prompt = thumbnail_concept_prompt(niche, concept.title, concept.concept)
+            prompt = (
+                f"Create a YouTube thumbnail concept for a video about "
+                f"'{niche}'. Title: '{title}'. Concept: '{description}'. "
+                f"Return JSON with: visual_concept, text_overlay, "
+                f"color_scheme (list of hex), layout_structure, "
+                f"emotion_trigger, contrast_strategy."
+            )
             result = client.generate_json(prompt, temperature=0.7)
 
             if result and isinstance(result, dict):
@@ -100,7 +106,7 @@ class ThumbnailGenerator:
         # Fallback
         return ThumbnailConcept(
             visual_concept=f"Bold visual related to {niche}",
-            text_overlay=concept.title[:30] if concept.title else niche.upper(),
+            text_overlay=title[:30] if title else niche.upper(),
             color_scheme=["#FF0000", "#FFFFFF", "#000000"],
             layout_structure="Large text left, visual right, gradient background",
             emotion_trigger="curiosity",

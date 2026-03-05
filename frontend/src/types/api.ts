@@ -294,11 +294,11 @@ export interface DiscoverRequest {
 
 export interface VideoFactoryStartRequest {
     niche: string;
-    voice_provider?: string;
-    voice_name?: string;
-    resolution?: string;
-    embed_subtitles?: boolean;
+    target_duration_minutes?: number;
+    orientation?: 'landscape' | 'portrait';
+    transition_style?: 'crossfade' | 'cut' | 'fade';
     use_gpu?: boolean;
+    copyright_strict?: boolean;
 }
 
 export interface VideoFactoryStartResponse {
@@ -306,6 +306,16 @@ export interface VideoFactoryStartResponse {
     job_id: string;
     niche: string;
     message: string;
+}
+
+export interface VideoFactoryClip {
+    clip_id: string;
+    source_video_id: string;
+    duration_seconds: number;
+    segment_type: string;
+    energy_level: string;
+    position: number;
+    is_valid: boolean;
 }
 
 export interface VideoFactoryJobStatus {
@@ -322,20 +332,41 @@ export interface VideoFactoryJobStatus {
     output_files: {
         video: string;
         thumbnail: string;
-        subtitles: string;
         metadata: string;
     } | null;
-    concept: {
+    clips: VideoFactoryClip[] | null;
+    strategy: {
+        niche: string;
+        source_videos_found: number;
+        segments_recommended: number;
+        compilation_score: number;
         title: string;
-        concept: string;
-        target_audience: string;
-        engagement_hook: string;
+        description: string;
     } | null;
     metadata: {
         title: string;
         description: string;
         tags: string[];
         hashtags: string[];
+    } | null;
+    copyright_report: {
+        is_safe: boolean;
+        issues: Array<{
+            severity: string;
+            message: string;
+            recommendation: string;
+        }>;
+        unique_sources: number;
+    } | null;
+    timeline_info: {
+        entries: number;
+        total_duration: number;
+        target_duration: number;
+    } | null;
+    settings: {
+        target_duration_minutes: number;
+        orientation: string;
+        transition_style: string;
     } | null;
 }
 

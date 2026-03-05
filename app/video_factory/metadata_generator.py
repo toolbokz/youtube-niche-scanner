@@ -1,4 +1,4 @@
-"""Video Factory — Step 9: Metadata Generation.
+"""Video Factory — Metadata Generation.
 
 Generates YouTube publishing assets: title, description, tags,
 hashtags, chapters, and SEO keywords.
@@ -10,11 +10,8 @@ from typing import Any
 
 from app.core.logging import get_logger
 from app.video_factory.models import (
-    VideoConcept,
-    VideoScript,
     VideoMetadata,
 )
-from app.video_factory.prompts import metadata_generation_prompt
 
 logger = get_logger(__name__)
 
@@ -25,8 +22,8 @@ class MetadataGenerator:
     async def generate(
         self,
         niche: str,
-        concept: VideoConcept,
-        script: VideoScript,
+        concept: Any,
+        script: Any,
         output_dir: str,
     ) -> VideoMetadata:
         """Generate complete YouTube metadata.
@@ -70,23 +67,28 @@ class MetadataGenerator:
     async def _generate_ai_metadata(
         self,
         niche: str,
-        concept: VideoConcept,
-        script: VideoScript,
+        concept: Any,
+        script: Any,
     ) -> VideoMetadata:
         """Generate metadata using AI."""
+        title = getattr(concept, "title", str(concept))
         try:
             from app.ai.client import get_ai_client
 
             client = get_ai_client()
-            sections_data = [s.model_dump() for s in script.sections]
-            prompt = metadata_generation_prompt(
-                niche, concept.title, sections_data, concept.model_dump()
+            sections_data = [s.model_dump() for s in script.sections] if hasattr(script, "sections") else []
+            concept_data = concept.model_dump() if hasattr(concept, "model_dump") else {"title": title}
+            prompt = (
+                f"Generate YouTube metadata for a video about '{niche}'. "
+                f"Title: '{title}'. Sections: {json.dumps(sections_data[:5])}. "
+                f"Return JSON with: title, description, tags (list), hashtags (list), "
+                f"chapters (list of {{time, title}}), category, language, seo_keywords (list)."
             )
             result = client.generate_json(prompt, use_pro=True, temperature=0.5)
 
             if result and isinstance(result, dict):
                 return VideoMetadata(
-                    title=result.get("title", concept.title),
+                    title=result.get("title", title),
                     description=result.get("description", ""),
                     tags=result.get("tags", []),
                     hashtags=result.get("hashtags", []),
@@ -105,28 +107,34 @@ class MetadataGenerator:
     def _fallback_metadata(
         self,
         niche: str,
-        concept: VideoConcept,
-        script: VideoScript,
+        concept: Any,
+        script: Any,
     ) -> VideoMetadata:
         """Generate fallback metadata without AI."""
+        title = getattr(concept, "title", str(concept))
+        engagement_hook = getattr(concept, "engagement_hook", f"Discover the best of {niche}")
+        sections = getattr(script, "sections", [])
+
         # Build chapters from script sections
         chapters = []
         current_time = 0
-        for section in script.sections:
+        for section in sections:
             minutes = current_time // 60
             seconds = current_time % 60
+            section_title = getattr(section, "section_title", str(section))
+            duration = getattr(section, "duration_seconds", 30)
             chapters.append({
                 "time": f"{int(minutes)}:{int(seconds):02d}",
-                "title": section.section_title,
+                "title": section_title,
             })
-            current_time += section.duration_seconds
+            current_time += duration
 
         # Build description
         chapter_text = "\n".join(
             f"{ch['time']} {ch['title']}" for ch in chapters
         )
         description = (
-            f"{concept.engagement_hook}\n\n"
+            f"{engagement_hook}\n\n"
             f"In this video, we explore {niche} and reveal insights "
             f"that can change your perspective completely.\n\n"
             f"📋 Chapters:\n{chapter_text}\n\n"
@@ -159,7 +167,7 @@ class MetadataGenerator:
         ]
 
         return VideoMetadata(
-            title=concept.title,
+            title=title,
             description=description,
             tags=tags[:25],
             hashtags=hashtags,

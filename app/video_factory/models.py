@@ -1,4 +1,9 @@
-"""Video Factory — Pydantic models for the video production pipeline."""
+"""Video Factory — Pydantic models for the video production pipeline.
+
+Supports the **compilation pipeline** that downloads real YouTube
+source videos, extracts segments, validates clips, and assembles
+them into a final compilation video.
+"""
 from __future__ import annotations
 
 from datetime import datetime
@@ -12,125 +17,147 @@ from pydantic import BaseModel, Field
 
 class JobStatus(str, Enum):
     QUEUED = "queued"
-    GENERATING_CONCEPT = "generating_concept"
-    GENERATING_SCRIPT = "generating_script"
-    GENERATING_VOICEOVER = "generating_voiceover"
-    SELECTING_CLIPS = "selecting_clips"
-    EXTRACTING_CLIPS = "extracting_clips"
+    # Compilation pipeline stages
+    FETCHING_STRATEGY = "fetching_strategy"
+    DOWNLOADING_VIDEOS = "downloading_videos"
+    EXTRACTING_SEGMENTS = "extracting_segments"
+    VALIDATING_CLIPS = "validating_clips"
+    COPYRIGHT_CHECK = "copyright_check"
+    BUILDING_TIMELINE = "building_timeline"
     ASSEMBLING_VIDEO = "assembling_video"
-    GENERATING_SUBTITLES = "generating_subtitles"
     GENERATING_THUMBNAIL = "generating_thumbnail"
     GENERATING_METADATA = "generating_metadata"
-    RENDERING = "rendering"
+    CLEANING_TEMP = "cleaning_temp"
     COMPLETED = "completed"
     FAILED = "failed"
 
 
-# ── Step 1: Concept ───────────────────────────────────────────────────────────
+# ── Video Settings ─────────────────────────────────────────────────────────────
 
-class VideoConcept(BaseModel):
-    """Generated video concept."""
+class VideoOrientation(str, Enum):
+    LANDSCAPE = "landscape"     # 16:9 — 1920×1080
+    PORTRAIT = "portrait"       # 9:16 — 1080×1920
+
+
+class VideoSettings(BaseModel):
+    """User-configurable video production settings."""
+    target_duration_minutes: int = 8          # 3 | 5 | 8 | 10
+    orientation: VideoOrientation = VideoOrientation.LANDSCAPE
+    max_source_resolution: int = 1080
+    transition_style: str = "crossfade"       # crossfade | cut | fade
+    transition_duration: float = 0.5
+    use_gpu: bool = True
+    reencode_clips: bool = True               # True for uniform quality
+    include_audio_from_clips: bool = True
+    copyright_strict: bool = False
+
+    @property
+    def resolution(self) -> str:
+        if self.orientation == VideoOrientation.PORTRAIT:
+            return "1080x1920"
+        return "1920x1080"
+
+    @property
+    def width(self) -> int:
+        return int(self.resolution.split("x")[0])
+
+    @property
+    def height(self) -> int:
+        return int(self.resolution.split("x")[1])
+
+
+# ── Download Results ───────────────────────────────────────────────────────────
+
+class DownloadedVideoInfo(BaseModel):
+    """Info about a single downloaded source video."""
+    video_id: str = ""
     title: str = ""
-    concept: str = ""
-    target_audience: str = ""
-    engagement_hook: str = ""
-    emotional_trigger: str = ""
-    video_structure: list[str] = Field(default_factory=list)
-    estimated_duration_minutes: int = 8
-    niche: str = ""
-
-
-# ── Step 2: Script ─────────────────────────────────────────────────────────────
-
-class ScriptSection(BaseModel):
-    """A single section of the video script."""
-    section_type: str = ""          # hook, intro, main_1, main_2, ..., conclusion, cta
-    section_title: str = ""
-    content: str = ""
-    duration_seconds: int = 0
-    visual_notes: str = ""          # guidance for clip selection
-    transition_note: str = ""
-
-
-class VideoScript(BaseModel):
-    """Complete video script."""
-    title: str = ""
-    sections: list[ScriptSection] = Field(default_factory=list)
-    total_word_count: int = 0
-    estimated_duration_seconds: int = 0
-    target_audience: str = ""
-    tone: str = "engaging"
-
-
-# ── Step 3: Voiceover ─────────────────────────────────────────────────────────
-
-class VoiceConfig(BaseModel):
-    """Voiceover generation configuration."""
-    provider: str = "google_tts"      # google_tts | elevenlabs | local
-    voice_name: str = "en-US-Neural2-D"
-    speaking_rate: float = 1.0
-    pitch: float = 0.0
-    elevenlabs_voice_id: str = ""
-    elevenlabs_api_key: str = ""
-
-
-class VoiceoverResult(BaseModel):
-    """Result from voiceover generation."""
-    audio_path: str = ""
+    file_path: str = ""
     duration_seconds: float = 0.0
-    provider: str = ""
-    sample_rate: int = 24000
-    sections_timestamps: list[dict[str, Any]] = Field(default_factory=list)
+    width: int = 0
+    height: int = 0
+    file_size_mb: float = 0.0
 
 
-# ── Step 4: Clip Selection ─────────────────────────────────────────────────────
+class DownloadStageResult(BaseModel):
+    """Result from the video downloading stage."""
+    downloaded: list[DownloadedVideoInfo] = Field(default_factory=list)
+    failed: list[dict[str, str]] = Field(default_factory=list)
+    source_dir: str = ""
+    total_size_mb: float = 0.0
 
-class ClipSource(BaseModel):
-    """A source clip mapped to a script section."""
-    section_index: int = 0
-    section_title: str = ""
-    source_type: str = ""            # youtube | stock | compilation
-    source_url: str = ""
+
+# ── Extracted Clips ────────────────────────────────────────────────────────────
+
+class ExtractedClipInfo(BaseModel):
+    """Info about a single extracted clip."""
+    clip_id: str = ""
     source_video_id: str = ""
-    start_time: float = 0.0
-    end_time: float = 0.0
+    file_path: str = ""
+    start_seconds: float = 0.0
+    end_seconds: float = 0.0
     duration_seconds: float = 0.0
-    description: str = ""
-    relevance_score: float = 0.0
-
-
-class ClipSelectionResult(BaseModel):
-    """Complete clip selection for the video."""
-    clips: list[ClipSource] = Field(default_factory=list)
-    total_clips: int = 0
-    total_duration_seconds: float = 0.0
-    coverage_pct: float = 0.0       # % of script sections covered
-
-
-# ── Step 5: Timeline ──────────────────────────────────────────────────────────
-
-class TimelineEntry(BaseModel):
-    """Single entry in the video timeline."""
+    segment_type: str = ""
+    energy_level: str = "medium"
     position: int = 0
-    entry_type: str = ""             # intro_animation, narration, highlight, cta
-    start_time: float = 0.0
-    end_time: float = 0.0
+    width: int = 0
+    height: int = 0
+    file_size_mb: float = 0.0
+    is_valid: bool = True
+
+
+class ExtractionStageResult(BaseModel):
+    """Result from the segment extraction stage."""
+    clips: list[ExtractedClipInfo] = Field(default_factory=list)
+    failed: list[dict[str, str]] = Field(default_factory=list)
+    clips_dir: str = ""
+    total_duration_seconds: float = 0.0
+    total_size_mb: float = 0.0
+
+
+# ── Copyright Report ──────────────────────────────────────────────────────────
+
+class CopyrightIssueInfo(BaseModel):
+    """A single copyright concern."""
+    severity: str = "warning"
+    source_video_id: str = ""
+    clip_id: str = ""
+    message: str = ""
+    recommendation: str = ""
+
+
+class CopyrightReportInfo(BaseModel):
+    """Copyright analysis result."""
+    is_safe: bool = True
+    issues: list[CopyrightIssueInfo] = Field(default_factory=list)
+    unique_sources: int = 0
+    source_usage: dict[str, float] = Field(default_factory=dict)
+
+
+# ── Compilation Timeline ──────────────────────────────────────────────────────
+
+class CompilationTimelineEntry(BaseModel):
+    """A single entry in the compilation video timeline."""
+    position: int = 0
+    clip_id: str = ""
+    clip_file_path: str = ""
+    source_video_id: str = ""
+    start_seconds: float = 0.0
+    end_seconds: float = 0.0
     duration_seconds: float = 0.0
-    clip_source: ClipSource | None = None
-    voiceover_segment: str = ""
-    overlay_text: str = ""
+    segment_type: str = ""
+    energy_level: str = "medium"
     transition: str = "crossfade"
 
 
-class VideoTimeline(BaseModel):
-    """Complete video timeline."""
-    entries: list[TimelineEntry] = Field(default_factory=list)
+class CompilationTimeline(BaseModel):
+    """Complete compilation video timeline — ordered list of real clips."""
+    entries: list[CompilationTimelineEntry] = Field(default_factory=list)
     total_duration_seconds: float = 0.0
-    has_intro: bool = False
-    has_outro: bool = False
+    target_duration_seconds: float = 0.0
 
 
-# ── Step 6: Assembly ───────────────────────────────────────────────────────────
+# ── Assembly ───────────────────────────────────────────────────────────────────
 
 class AssemblyConfig(BaseModel):
     """Configuration for video assembly."""
@@ -142,7 +169,7 @@ class AssemblyConfig(BaseModel):
     text_font: str = "Arial"
     text_color: str = "#FFFFFF"
     text_bg_color: str = "#000000AA"
-    embed_subtitles: bool = True
+    embed_subtitles: bool = False
     use_gpu: bool = True
 
 
@@ -153,27 +180,10 @@ class AssemblyResult(BaseModel):
     file_size_mb: float = 0.0
     resolution: str = ""
     fps: int = 30
+    clips_used: int = 0
 
 
-# ── Step 7: Subtitles ─────────────────────────────────────────────────────────
-
-class SubtitleEntry(BaseModel):
-    """Single subtitle entry."""
-    index: int = 0
-    start_time: float = 0.0
-    end_time: float = 0.0
-    text: str = ""
-
-
-class SubtitleResult(BaseModel):
-    """Result from subtitle generation."""
-    srt_path: str = ""
-    entries: list[SubtitleEntry] = Field(default_factory=list)
-    total_entries: int = 0
-    language: str = "en"
-
-
-# ── Step 8: Thumbnail ─────────────────────────────────────────────────────────
+# ── Thumbnail ──────────────────────────────────────────────────────────────────
 
 class ThumbnailConcept(BaseModel):
     """AI-generated thumbnail concept."""
@@ -193,7 +203,7 @@ class ThumbnailResult(BaseModel):
     height: int = 720
 
 
-# ── Step 9: Metadata ──────────────────────────────────────────────────────────
+# ── Metadata ──────────────────────────────────────────────────────────────────
 
 class VideoMetadata(BaseModel):
     """Complete YouTube publishing metadata."""
@@ -201,8 +211,8 @@ class VideoMetadata(BaseModel):
     description: str = ""
     tags: list[str] = Field(default_factory=list)
     hashtags: list[str] = Field(default_factory=list)
-    chapters: list[dict[str, str]] = Field(default_factory=list)   # [{"time": "0:00", "title": "Intro"}]
-    category: str = "Education"
+    chapters: list[dict[str, str]] = Field(default_factory=list)
+    category: str = "Entertainment"
     language: str = "en"
     seo_keywords: list[str] = Field(default_factory=list)
 
@@ -210,27 +220,37 @@ class VideoMetadata(BaseModel):
 # ── Final Output ───────────────────────────────────────────────────────────────
 
 class VideoFactoryOutput(BaseModel):
-    """Final output from the video factory pipeline."""
+    """Final output from the compilation video pipeline."""
     job_id: str = ""
     niche: str = ""
-    concept: VideoConcept = Field(default_factory=VideoConcept)
-    script: VideoScript = Field(default_factory=VideoScript)
-    voiceover: VoiceoverResult = Field(default_factory=VoiceoverResult)
-    clip_selection: ClipSelectionResult = Field(default_factory=ClipSelectionResult)
-    timeline: VideoTimeline = Field(default_factory=VideoTimeline)
+    # Strategy
+    strategy_summary: dict[str, Any] = Field(default_factory=dict)
+    # Downloads
+    downloads: DownloadStageResult = Field(default_factory=DownloadStageResult)
+    # Extraction
+    extraction: ExtractionStageResult = Field(default_factory=ExtractionStageResult)
+    # Copyright
+    copyright_report: CopyrightReportInfo = Field(default_factory=CopyrightReportInfo)
+    # Timeline
+    timeline: CompilationTimeline = Field(default_factory=CompilationTimeline)
+    # Assembly
     assembly: AssemblyResult = Field(default_factory=AssemblyResult)
-    subtitles: SubtitleResult = Field(default_factory=SubtitleResult)
+    # Thumbnail
     thumbnail: ThumbnailResult = Field(default_factory=ThumbnailResult)
+    # Metadata
     metadata: VideoMetadata = Field(default_factory=VideoMetadata)
+    # Output paths
     output_dir: str = ""
     video_path: str = ""
     thumbnail_path: str = ""
-    subtitles_path: str = ""
     metadata_path: str = ""
+    # Status
     created_at: datetime = Field(default_factory=datetime.utcnow)
     completed_at: datetime | None = None
     status: JobStatus = JobStatus.QUEUED
     error: str = ""
+    # Settings used
+    settings: VideoSettings = Field(default_factory=VideoSettings)
 
 
 # ── Job Model ──────────────────────────────────────────────────────────────────
@@ -249,3 +269,8 @@ class FactoryJob(BaseModel):
     completed_at: datetime | None = None
     error: str = ""
     config: dict[str, Any] = Field(default_factory=dict)
+    settings: VideoSettings = Field(default_factory=VideoSettings)
+
+
+# (These models are defined above — VideoSettings, Download/Extraction/Copyright/
+#  Timeline/Assembly/Thumbnail/Metadata/VideoFactoryOutput/FactoryJob)
