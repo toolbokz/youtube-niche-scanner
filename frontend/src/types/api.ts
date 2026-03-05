@@ -299,6 +299,11 @@ export interface VideoFactoryStartRequest {
     transition_style?: 'crossfade' | 'cut' | 'fade';
     use_gpu?: boolean;
     copyright_strict?: boolean;
+    enable_voiceover?: boolean;
+    enable_subtitles?: boolean;
+    enable_thumbnail?: boolean;
+    enable_background_music?: boolean;
+    enable_transitions?: boolean;
 }
 
 export interface VideoFactoryStartResponse {
@@ -306,6 +311,7 @@ export interface VideoFactoryStartResponse {
     job_id: string;
     niche: string;
     message: string;
+    settings?: Record<string, unknown>;
 }
 
 export interface VideoFactoryClip {
@@ -367,7 +373,38 @@ export interface VideoFactoryJobStatus {
         target_duration_minutes: number;
         orientation: string;
         transition_style: string;
+        enable_voiceover: boolean;
+        enable_subtitles: boolean;
+        enable_thumbnail: boolean;
+        enable_background_music: boolean;
+        enable_transitions: boolean;
     } | null;
+}
+
+export interface VideoFactoryPreview {
+    job_id: string;
+    niche: string;
+    status: 'ready' | 'unavailable';
+    stream_url: string | null;
+    download_url: string | null;
+    thumbnail_url: string | null;
+    video_size_mb: number;
+    metadata: {
+        title: string;
+        description: string;
+        tags: string[];
+        hashtags: string[];
+    } | null;
+    timeline_info: {
+        entries: number;
+        total_duration: number;
+        target_duration: number;
+    } | null;
+    clips_used: number;
+    copyright_safe: boolean;
+    settings: Record<string, unknown> | null;
+    created_at: string;
+    completed_at: string | null;
 }
 
 export interface VideoFactoryJobSummary {

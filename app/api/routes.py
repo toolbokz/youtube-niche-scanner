@@ -87,6 +87,12 @@ class VideoFactoryStartRequest(BaseModel):
     transition_style: str = Field(default="crossfade", description="Transition style: crossfade | cut | fade")
     use_gpu: bool = Field(default=True, description="Use GPU acceleration for rendering")
     copyright_strict: bool = Field(default=False, description="Fail on copyright warnings")
+    # Extended settings for CI → VF workflow
+    enable_voiceover: bool = Field(default=False, description="Enable AI voiceover narration")
+    enable_subtitles: bool = Field(default=False, description="Enable subtitle generation")
+    enable_thumbnail: bool = Field(default=True, description="Generate a thumbnail")
+    enable_background_music: bool = Field(default=False, description="Add background music track")
+    enable_transitions: bool = Field(default=True, description="Enable transitions between clips")
 
 
 class VideoFactoryJobResponse(BaseModel):
@@ -697,6 +703,11 @@ def create_app() -> FastAPI:
             transition_style=body.transition_style,
             use_gpu=body.use_gpu,
             copyright_strict=body.copyright_strict,
+            enable_voiceover=body.enable_voiceover,
+            enable_subtitles=body.enable_subtitles,
+            enable_thumbnail=body.enable_thumbnail,
+            enable_background_music=body.enable_background_music,
+            enable_transitions=body.enable_transitions,
         )
 
         job = await manager.submit_job(
@@ -871,6 +882,217 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400, detail="Job cannot be cancelled (not running or not found)")
 
         return {"status": "cancelled", "job_id": job_id}
+
+    # ── Video Factory — Create from CI strategy ────────────────────────
+
+    @app.post("/video-factory/create")
+    async def video_factory_create(body: VideoFactoryStartRequest) -> dict[str, Any]:
+        """Create a video from Compilation Intelligence results.
+
+        Same as /video-factory/start but exposed as a dedicated
+        endpoint for the CI → VF workflow. Accepts the full
+        expanded settings payload.
+        """
+        from app.video_factory.job_manager import get_job_manager
+        from app.video_factory.models import VideoSettings, VideoOrientation
+
+        manager = get_job_manager()
+
+        orientation = (
+            VideoOrientation.PORTRAIT
+            if body.orientation == "portrait"
+            else VideoOrientation.LANDSCAPE
+        )
+
+        settings = VideoSettings(
+            target_duration_minutes=body.target_duration_minutes,
+            orientation=orientation,
+            transition_style=body.transition_style if body.enable_transitions else "cut",
+            use_gpu=body.use_gpu,
+            copyright_strict=body.copyright_strict,
+            enable_voiceover=body.enable_voiceover,
+            enable_subtitles=body.enable_subtitles,
+            enable_thumbnail=body.enable_thumbnail,
+            enable_background_music=body.enable_background_music,
+            enable_transitions=body.enable_transitions,
+        )
+
+        job = await manager.submit_job(niche=body.niche, settings=settings)
+
+        return {
+            "status": "accepted",
+            "job_id": job.job_id,
+            "niche": job.niche,
+            "settings": settings.model_dump(),
+            "message": f"Compilation video job created for niche: {body.niche}",
+        }
+
+    # ── Video Factory — Preview / stream ───────────────────────────────
+
+    @app.get("/video-factory/preview/{job_id}")
+    async def video_factory_preview(job_id: str) -> dict[str, Any]:
+        """Get preview metadata for a completed video factory job.
+
+        Returns metadata, streaming URL, and asset info for the
+        frontend video player and preview screen.
+        """
+        from app.video_factory.job_manager import get_job_manager
+
+        manager = get_job_manager()
+        job = manager.get_job(job_id)
+
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        if not job.output or job.status.value != "completed":
+            raise HTTPException(status_code=400, detail="Job not completed yet")
+
+        video_path = Path(job.output.video_path) if job.output.video_path else None
+        thumb_path = Path(job.output.thumbnail_path) if job.output.thumbnail_path else None
+
+        video_size_mb = 0.0
+        video_exists = False
+        if video_path and video_path.exists():
+            video_exists = True
+            video_size_mb = round(video_path.stat().st_size / (1024 * 1024), 2)
+
+        return {
+            "job_id": job_id,
+            "niche": job.niche,
+            "status": "ready" if video_exists else "unavailable",
+            "stream_url": f"/video-factory/stream/{job_id}" if video_exists else None,
+            "download_url": f"/video-factory/download/{job_id}?file=video" if video_exists else None,
+            "thumbnail_url": f"/video-factory/download/{job_id}?file=thumbnail" if thumb_path and thumb_path.exists() else None,
+            "video_size_mb": video_size_mb,
+            "metadata": (
+                job.output.metadata.model_dump()
+                if job.output.metadata and job.output.metadata.title
+                else None
+            ),
+            "timeline_info": (
+                {
+                    "entries": len(job.output.timeline.entries),
+                    "total_duration": job.output.timeline.total_duration_seconds,
+                    "target_duration": job.output.timeline.target_duration_seconds,
+                }
+                if job.output.timeline.entries
+                else None
+            ),
+            "clips_used": job.output.assembly.clips_used if job.output.assembly else 0,
+            "copyright_safe": (
+                job.output.copyright_report.is_safe
+                if job.output.copyright_report
+                else True
+            ),
+            "settings": job.settings.model_dump() if job.settings else None,
+            "created_at": job.created_at.isoformat(),
+            "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+        }
+
+    @app.get("/video-factory/stream/{job_id}")
+    async def video_factory_stream(job_id: str, request: Request) -> Response:
+        """Stream a completed video with HTTP Range request support.
+
+        Enables the HTML5 <video> element to seek and play instantly
+        without downloading the entire file first.
+        """
+        from app.video_factory.job_manager import get_job_manager
+
+        manager = get_job_manager()
+        job = manager.get_job(job_id)
+
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        if not job.output or job.status.value != "completed" or not job.output.video_path:
+            raise HTTPException(status_code=400, detail="Video not available")
+
+        video_path = Path(job.output.video_path)
+        if not video_path.exists():
+            raise HTTPException(status_code=404, detail="Video file not found on disk")
+
+        file_size = video_path.stat().st_size
+        range_header = request.headers.get("range")
+
+        if range_header:
+            # Parse Range: bytes=start-end
+            range_spec = range_header.replace("bytes=", "")
+            parts = range_spec.split("-")
+            start = int(parts[0]) if parts[0] else 0
+            end = int(parts[1]) if parts[1] else file_size - 1
+            end = min(end, file_size - 1)
+            content_length = end - start + 1
+
+            def _iter_range():
+                with open(video_path, "rb") as f:
+                    f.seek(start)
+                    remaining = content_length
+                    while remaining > 0:
+                        chunk = f.read(min(65536, remaining))
+                        if not chunk:
+                            break
+                        remaining -= len(chunk)
+                        yield chunk
+
+            from starlette.responses import StreamingResponse
+            return StreamingResponse(
+                _iter_range(),
+                status_code=206,
+                media_type="video/mp4",
+                headers={
+                    "Content-Range": f"bytes {start}-{end}/{file_size}",
+                    "Accept-Ranges": "bytes",
+                    "Content-Length": str(content_length),
+                    "Cache-Control": "no-cache",
+                },
+            )
+        else:
+            # Full file response
+            from starlette.responses import FileResponse
+            return FileResponse(
+                path=str(video_path),
+                media_type="video/mp4",
+                headers={
+                    "Accept-Ranges": "bytes",
+                    "Content-Length": str(file_size),
+                },
+            )
+
+    # ── Video Factory — Delete ─────────────────────────────────────────
+
+    @app.delete("/video-factory/delete/{job_id}")
+    async def video_factory_delete(job_id: str) -> dict[str, Any]:
+        """Delete a video factory job and all its output files.
+
+        Removes the job from memory and deletes the output directory
+        (data/compiled_videos/{job_id}/) if it exists.
+        """
+        import shutil
+        from app.video_factory.job_manager import get_job_manager
+
+        manager = get_job_manager()
+        job = manager.get_job(job_id)
+
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        # Delete output files from disk
+        files_deleted = False
+        if job.output and job.output.output_dir:
+            output_dir = Path(job.output.output_dir)
+            if output_dir.exists():
+                shutil.rmtree(output_dir, ignore_errors=True)
+                files_deleted = True
+
+        # Remove from in-memory jobs
+        if job_id in manager.jobs:
+            del manager.jobs[job_id]
+
+        logger.info("factory_job_deleted", job_id=job_id, files_deleted=files_deleted)
+
+        return {
+            "status": "deleted",
+            "job_id": job_id,
+            "files_deleted": files_deleted,
+        }
 
     return app
 

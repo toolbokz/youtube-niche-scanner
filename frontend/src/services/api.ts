@@ -10,6 +10,7 @@ import type {
     VideoFactoryStartResponse,
     VideoFactoryJobStatus,
     VideoFactoryJobSummary,
+    VideoFactoryPreview,
 } from '@/types';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -156,4 +157,29 @@ export async function cancelVideoFactoryJob(jobId: string) {
 
 export function getVideoFactoryDownloadUrl(jobId: string, file: 'video' | 'thumbnail' | 'metadata') {
     return `${API_BASE}/video-factory/download/${jobId}?file=${file}`;
+}
+
+export function getVideoFactoryStreamUrl(jobId: string) {
+    return `${API_BASE}/video-factory/stream/${jobId}`;
+}
+
+export async function createVideoFromCI(
+    params: VideoFactoryStartRequest,
+): Promise<VideoFactoryStartResponse> {
+    return request<VideoFactoryStartResponse>('/video-factory/create', {
+        method: 'POST',
+        body: JSON.stringify(params),
+    });
+}
+
+export async function getVideoFactoryPreview(
+    jobId: string,
+): Promise<VideoFactoryPreview> {
+    return request<VideoFactoryPreview>(`/video-factory/preview/${jobId}`);
+}
+
+export async function deleteVideoFactoryJob(
+    jobId: string,
+): Promise<{ status: string; job_id: string; files_deleted: boolean }> {
+    return request(`/video-factory/delete/${jobId}`, { method: 'DELETE' });
 }

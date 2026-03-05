@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -19,6 +20,7 @@ import {
     Target,
     ExternalLink,
     AlertCircle,
+    Factory,
 } from 'lucide-react';
 import type { CompilationStrategy, CompilationStructureItem } from '@/types';
 import { getCompilationStrategy } from '@/services/api';
@@ -49,6 +51,7 @@ function formatViews(n: number) {
 // ── Page Component ────────────────────────────────────────────────────────────
 
 export default function CompilationPage() {
+    const router = useRouter();
     const [niche, setNiche] = useState('');
     const [strategy, setStrategy] = useState<CompilationStrategy | null>(null);
     const [loading, setLoading] = useState(false);
@@ -183,6 +186,25 @@ export default function CompilationPage() {
                             </CardContent>
                         </Card>
                     </div>
+
+                    {/* Create Video CTA */}
+                    <Card className="border-primary/30 bg-primary/5">
+                        <CardContent className="flex items-center justify-between pt-6">
+                            <div className="space-y-1">
+                                <h3 className="text-lg font-semibold">Ready to create this video?</h3>
+                                <p className="text-sm text-muted-foreground">
+                                    Use the Video Factory to automatically download clips, assemble, and produce a real compilation video.
+                                </p>
+                            </div>
+                            <Button
+                                size="lg"
+                                onClick={() => router.push(`/video-factory?niche=${encodeURIComponent(strategy.niche)}`)}
+                                className="shrink-0 ml-4"
+                            >
+                                <Factory className="mr-2 h-5 w-5" /> Create Video
+                            </Button>
+                        </CardContent>
+                    </Card>
 
                     {/* Final Video Concept */}
                     <Card>

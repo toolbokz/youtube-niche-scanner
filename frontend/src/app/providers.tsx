@@ -20,6 +20,15 @@ export function Providers({ children }: { children: React.ReactNode }) {
     );
 
     const theme = useAppStore((s) => s.theme);
+    const setTheme = useAppStore((s) => s.setTheme);
+
+    // Sync theme from localStorage after mount (avoids hydration mismatch)
+    useEffect(() => {
+        const stored = localStorage.getItem('theme') as 'light' | 'dark' | null;
+        if (stored && stored !== theme) {
+            setTheme(stored);
+        }
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         const root = document.documentElement;

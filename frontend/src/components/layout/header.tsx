@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { Moon, Sun, Search, Activity } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,6 +10,8 @@ import { cn } from '@/lib/utils';
 
 export function Header() {
     const { theme, toggleTheme, sidebarOpen } = useAppStore();
+    const [mounted, setMounted] = useState(false);
+    useEffect(() => { setMounted(true); }, []);
     const { data: health } = useHealth();
 
     return (
@@ -38,9 +41,9 @@ export function Header() {
                     {health?.version && <span className="text-[10px]">v{health.version}</span>}
                 </div>
 
-                {/* Theme toggle */}
+                {/* Theme toggle — render after mount to avoid hydration mismatch */}
                 <Button variant="ghost" size="icon" onClick={toggleTheme}>
-                    {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                    {!mounted || theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
                 </Button>
             </div>
         </header>

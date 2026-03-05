@@ -51,6 +51,13 @@ class VideoSettings(BaseModel):
     include_audio_from_clips: bool = True
     copyright_strict: bool = False
 
+    # Extended settings for CI → VF workflow
+    enable_voiceover: bool = False
+    enable_subtitles: bool = False
+    enable_thumbnail: bool = True
+    enable_background_music: bool = False
+    enable_transitions: bool = True
+
     @property
     def resolution(self) -> str:
         if self.orientation == VideoOrientation.PORTRAIT:

@@ -32,10 +32,8 @@ export const useAppStore = create<AppState>((set) => ({
     sidebarOpen: true,
     toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
 
-    theme:
-        typeof window !== 'undefined'
-            ? (localStorage.getItem('theme') as 'light' | 'dark') || 'dark'
-            : 'dark',
+    // Always start with 'dark' — localStorage sync happens in Providers after mount
+    theme: 'dark',
     setTheme: (theme) => {
         if (typeof window !== 'undefined') localStorage.setItem('theme', theme);
         set({ theme });
