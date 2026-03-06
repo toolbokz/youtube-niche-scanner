@@ -8,9 +8,7 @@ keyword-expansion → clustering → ranking pipeline.
 from __future__ import annotations
 
 import asyncio
-from typing import Any
 
-from app.config import get_settings
 from app.connectors.google_trends import GoogleTrendsConnector
 from app.connectors.reddit import RedditConnector
 from app.connectors.youtube_autocomplete import YouTubeAutocompleteConnector

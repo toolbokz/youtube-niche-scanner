@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useAppStore } from '@/store/app-store';
-import { useAnalyze, useDiscover } from '@/hooks/use-api';
+import { useAnalyze, useDiscover, usePersistedNiches, useDiscoveries } from '@/hooks/use-api';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -64,6 +64,10 @@ export default function DiscoverPage() {
     const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
     const isLoading = analyze.isPending || discover.isPending;
+
+    // Load persisted niches when no active analysis
+    const persistedNichesQuery = usePersistedNiches(100, 0);
+    const discoveriesQuery = useDiscoveries(10);
 
     const addSeed = () => {
         const trimmed = seedInput.trim();
@@ -313,11 +317,115 @@ export default function DiscoverPage() {
             )}
 
             {!isLoading && !analysisData && (
-                <EmptyState
-                    icon={Compass}
-                    title="No results yet"
-                    description="Enter seed keywords and run an analysis, or use automatic discovery to find trending niches."
-                />
+                <>
+                    {/* Show persisted niches from past analysis runs */}
+                    {persistedNichesQuery.data && persistedNichesQuery.data.niches.length > 0 ? (
+                        <>
+                            {/* Past discoveries info */}
+                            {discoveriesQuery.data && discoveriesQuery.data.discoveries.length > 0 && (
+                                <Card>
+                                    <CardHeader className="pb-3">
+                                        <CardTitle className="text-base">Past Discoveries</CardTitle>
+                                        <CardDescription>
+                                            {discoveriesQuery.data.discoveries.length} previous analysis run{discoveriesQuery.data.discoveries.length > 1 ? 's' : ''} found
+                                        </CardDescription>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <div className="flex flex-wrap gap-2">
+                                            {discoveriesQuery.data.discoveries.slice(0, 5).map((run) => (
+                                                <Badge key={run.id} variant="outline" className="text-xs">
+                                                    {run.seed_keywords.slice(0, 3).join(', ')}
+                                                    {' · '}
+                                                    {run.total_niches} niches
+                                                    {run.completed_at && (
+                                                        <span className="ml-1 text-muted-foreground">
+                                                            {new Date(run.completed_at).toLocaleDateString()}
+                                                        </span>
+                                                    )}
+                                                </Badge>
+                                            ))}
+                                        </div>
+                                    </CardContent>
+                                </Card>
+                            )}
+
+                            {/* Persisted niches table */}
+                            <div className="flex items-center gap-4">
+                                <div className="relative flex-1 max-w-sm">
+                                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                                    <Input
+                                        placeholder="Filter saved niches..."
+                                        value={searchFilter}
+                                        onChange={(e) => setSearchFilter(e.target.value)}
+                                        className="pl-9"
+                                    />
+                                </div>
+                                <span className="text-sm text-muted-foreground">
+                                    {persistedNichesQuery.data.niches.length} saved niches
+                                </span>
+                            </div>
+
+                            <Card>
+                                <CardContent className="p-0">
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-sm">
+                                            <thead>
+                                                <tr className="border-b bg-muted/50">
+                                                    <th className="px-4 py-3 text-left font-medium">#</th>
+                                                    <th className="px-4 py-3 text-left font-medium">Niche</th>
+                                                    {COLUMNS.map((col) => (
+                                                        <th key={col.key} className="px-4 py-3 text-left font-medium">
+                                                            {col.label}
+                                                        </th>
+                                                    ))}
+                                                    <th className="px-4 py-3" />
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {persistedNichesQuery.data.niches
+                                                    .filter((n) => n.niche.toLowerCase().includes(searchFilter.toLowerCase()))
+                                                    .map((niche, i) => (
+                                                        <tr key={niche.id} className="border-b transition-colors hover:bg-muted/50">
+                                                            <td className="px-4 py-3 text-muted-foreground">{niche.rank || i + 1}</td>
+                                                            <td className="px-4 py-3 font-medium">{niche.niche}</td>
+                                                            {COLUMNS.map((col) => (
+                                                                <td key={col.key} className="px-4 py-3">
+                                                                    <Badge
+                                                                        variant={
+                                                                            Number(niche[col.key]) >= 70
+                                                                                ? 'success'
+                                                                                : Number(niche[col.key]) >= 50
+                                                                                    ? 'warning'
+                                                                                    : 'secondary'
+                                                                        }
+                                                                    >
+                                                                        {formatScore(Number(niche[col.key]) || 0)}
+                                                                    </Badge>
+                                                                </td>
+                                                            ))}
+                                                            <td className="px-4 py-3">
+                                                                <Link href={`/niches/${encodeURIComponent(niche.niche)}`}>
+                                                                    <Button variant="ghost" size="icon">
+                                                                        <ChevronRight className="h-4 w-4" />
+                                                                    </Button>
+                                                                </Link>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        </>
+                    ) : (
+                        <EmptyState
+                            icon={Compass}
+                            title="No results yet"
+                            description="Enter seed keywords and run an analysis, or use automatic discovery to find trending niches."
+                        />
+                    )}
+                </>
             )}
         </div>
     );

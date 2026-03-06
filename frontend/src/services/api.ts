@@ -11,6 +11,18 @@ import type {
     VideoFactoryJobStatus,
     VideoFactoryJobSummary,
     VideoFactoryPreview,
+    EditorClipsResponse,
+    EditorRenderRequest,
+    EditorRenderResponse,
+    EditorRenderStatus,
+    EditorTimeline,
+    EditorTimelineSaveResponse,
+    EditorTimelineLoadResponse,
+    DiscoveryRun,
+    PersistedNiche,
+    PersistedVideoIdea,
+    PersistedVideoStrategy,
+    PersistedCompilationStrategy,
 } from '@/types';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -182,4 +194,85 @@ export async function deleteVideoFactoryJob(
     jobId: string,
 ): Promise<{ status: string; job_id: string; files_deleted: boolean }> {
     return request(`/video-factory/delete/${jobId}`, { method: 'DELETE' });
+}
+
+// ── Video Editor ──────────────────────────────────────────────────────────────
+
+export async function getEditorClips(
+    jobId: string,
+): Promise<EditorClipsResponse> {
+    return request<EditorClipsResponse>(`/video-editor/clips/${jobId}`);
+}
+
+export async function saveEditorTimeline(
+    jobId: string,
+    timeline: EditorTimeline,
+): Promise<EditorTimelineSaveResponse> {
+    return request<EditorTimelineSaveResponse>('/video-editor/save-timeline', {
+        method: 'POST',
+        body: JSON.stringify({ job_id: jobId, ...timeline }),
+    });
+}
+
+export async function loadEditorTimeline(
+    jobId: string,
+): Promise<EditorTimelineLoadResponse> {
+    return request<EditorTimelineLoadResponse>(`/video-editor/load-timeline/${jobId}`);
+}
+
+export async function startEditorRender(
+    params: EditorRenderRequest,
+): Promise<EditorRenderResponse> {
+    return request<EditorRenderResponse>('/video-editor/render', {
+        method: 'POST',
+        body: JSON.stringify(params),
+    });
+}
+
+export async function getEditorRenderStatus(
+    renderId: string,
+): Promise<EditorRenderStatus> {
+    return request<EditorRenderStatus>(`/video-editor/render-status/${renderId}`);
+}
+
+export function getEditorRenderStreamUrl(renderId: string) {
+    return `${API_BASE}/video-editor/render-stream/${renderId}`;
+}
+
+// ── Persistence / History ─────────────────────────────────────────────────────
+
+export async function getDiscoveries(limit = 50): Promise<{ discoveries: DiscoveryRun[]; total: number }> {
+    return request(`/discoveries?limit=${limit}`);
+}
+
+export async function getPersistedNiches(
+    limit = 100,
+    minScore = 0,
+): Promise<{ niches: PersistedNiche[]; total: number }> {
+    return request(`/persisted-niches?limit=${limit}&min_score=${minScore}`);
+}
+
+export async function getNicheVideoIdeas(
+    nicheName: string,
+    limit = 50,
+): Promise<{ niche: string; video_ideas: PersistedVideoIdea[]; total: number }> {
+    return request(`/persisted-niches/${encodeURIComponent(nicheName)}/video-ideas?limit=${limit}`);
+}
+
+export async function getVideoStrategies(
+    niche = '',
+    limit = 50,
+): Promise<{ video_strategies: PersistedVideoStrategy[]; total: number }> {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (niche) params.set('niche', niche);
+    return request(`/video-strategies?${params.toString()}`);
+}
+
+export async function getCompilationStrategies(
+    niche = '',
+    limit = 50,
+): Promise<{ compilation_strategies: PersistedCompilationStrategy[]; total: number }> {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (niche) params.set('niche', niche);
+    return request(`/compilation-strategies?${params.toString()}`);
 }

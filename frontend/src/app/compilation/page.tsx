@@ -21,9 +21,11 @@ import {
     ExternalLink,
     AlertCircle,
     Factory,
+    History,
 } from 'lucide-react';
 import type { CompilationStrategy, CompilationStructureItem } from '@/types';
 import { getCompilationStrategy } from '@/services/api';
+import { useCompilationStrategies } from '@/hooks/use-api';
 import { formatScore } from '@/lib/utils';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -57,6 +59,7 @@ export default function CompilationPage() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['timeline', 'sources']));
+    const pastCompilations = useCompilationStrategies('', 20);
 
     const toggleSection = useCallback((id: string) => {
         setExpandedSections(prev => {
@@ -494,6 +497,53 @@ export default function CompilationPage() {
                         </Card>
                     )}
                 </>
+            )}
+
+            {/* Past compilation strategies */}
+            {!strategy && !loading && pastCompilations.data && pastCompilations.data.compilation_strategies.length > 0 && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2 text-base">
+                            <History className="h-4 w-4" />
+                            Past Compilation Strategies
+                        </CardTitle>
+                        <CardDescription>
+                            {pastCompilations.data.compilation_strategies.length} saved from previous sessions
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="space-y-3">
+                            {pastCompilations.data.compilation_strategies.map((cs) => (
+                                <div
+                                    key={cs.id}
+                                    className="flex items-center justify-between rounded-lg border p-3 transition-colors hover:bg-muted/50 cursor-pointer"
+                                    onClick={() => {
+                                        setNiche(cs.niche);
+                                        if (cs.strategy) {
+                                            setStrategy(cs.strategy as unknown as CompilationStrategy);
+                                        }
+                                    }}
+                                >
+                                    <div>
+                                        <p className="text-sm font-medium">{cs.niche}</p>
+                                        <p className="text-xs text-muted-foreground">
+                                            Score: {formatScore(cs.compilation_score)} &middot;
+                                            {cs.total_source_videos} sources
+                                            {cs.created_at && (
+                                                <span className="ml-1">
+                                                    &middot; {new Date(cs.created_at).toLocaleDateString()}
+                                                </span>
+                                            )}
+                                        </p>
+                                    </div>
+                                    <Badge variant={cs.compilation_score >= 70 ? 'success' : cs.compilation_score >= 50 ? 'warning' : 'secondary'}>
+                                        {formatScore(cs.compilation_score)}
+                                    </Badge>
+                                </div>
+                            ))}
+                        </div>
+                    </CardContent>
+                </Card>
             )}
         </div>
     );

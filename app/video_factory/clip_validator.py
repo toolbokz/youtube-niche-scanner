@@ -93,16 +93,20 @@ class ClipValidator:
         """
         results: list[ClipValidation] = []
 
-        for item in clip_paths:
-            clip_id = item["clip_id"]
-            file_path = item["file_path"]
-            val = await self._validate_single(clip_id, file_path)
-            results.append(val)
+        # Validate clips in parallel (bounded to avoid fd exhaustion)
+        sem = asyncio.Semaphore(8)
 
+        async def _bounded_validate(item: dict[str, str]) -> ClipValidation:
+            async with sem:
+                return await self._validate_single(item["clip_id"], item["file_path"])
+
+        results = await asyncio.gather(*[_bounded_validate(item) for item in clip_paths])
+
+        for val in results:
             if val.is_valid:
-                logger.debug("clip_valid", clip_id=clip_id, duration=val.duration_seconds)
+                logger.debug("clip_valid", clip_id=val.clip_id, duration=val.duration_seconds)
             else:
-                logger.warning("clip_invalid", clip_id=clip_id, errors=val.errors)
+                logger.warning("clip_invalid", clip_id=val.clip_id, errors=val.errors)
 
         valid_count = sum(1 for r in results if r.is_valid)
         if valid_count == 0:
@@ -209,7 +213,9 @@ class ClipValidator:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
             )
-            stdout_bytes, _ = await proc.communicate()
+            stdout_bytes, _ = await asyncio.wait_for(
+                proc.communicate(), timeout=30.0,
+            )
             if proc.returncode == 0 and stdout_bytes:
                 return json.loads(stdout_bytes.decode())
         except Exception:

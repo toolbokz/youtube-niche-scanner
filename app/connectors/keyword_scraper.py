@@ -1,7 +1,6 @@
 """Keyword expansion scraper using multiple sources."""
 from __future__ import annotations
 
-import json
 from urllib.parse import quote_plus
 
 from app.config.settings import ConnectorConfig

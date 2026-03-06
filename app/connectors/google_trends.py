@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
 
 from app.config.settings import ConnectorConfig
 from app.connectors.base import BaseConnector
@@ -25,7 +24,7 @@ class GoogleTrendsConnector(BaseConnector):
 
         try:
             # Run pytrends in executor since it's synchronous
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(
                 None, self._fetch_trend_sync, keyword, timeframe
             )

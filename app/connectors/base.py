@@ -57,8 +57,14 @@ class BaseConnector(ABC):
                 await asyncio.sleep(min_interval - elapsed)
             self._last_request_time = time.time()
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=0.5, min=0.5, max=5),
+        retry=retry_if_exception_type((httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout)),
+        reraise=True,
+    )
     async def _fetch(self, url: str, params: dict[str, Any] | None = None) -> str:
-        """HTTP GET with rate limiting."""
+        """HTTP GET with rate limiting and automatic retries."""
         await self._rate_limit()
         client = await self._get_client()
         self.logger.debug("http_request", url=url, params=params)
@@ -66,8 +72,14 @@ class BaseConnector(ABC):
         response.raise_for_status()
         return response.text
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=0.5, min=0.5, max=5),
+        retry=retry_if_exception_type((httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout)),
+        reraise=True,
+    )
     async def _fetch_json(self, url: str, params: dict[str, Any] | None = None) -> Any:
-        """HTTP GET returning parsed JSON."""
+        """HTTP GET returning parsed JSON with automatic retries."""
         await self._rate_limit()
         client = await self._get_client()
         self.logger.debug("http_request_json", url=url, params=params)

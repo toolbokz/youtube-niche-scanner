@@ -99,7 +99,9 @@ class TopicVelocityEngine:
         Week 0 = most recent, Week 1 = 1 week ago, etc.
         Uses heuristic parsing of YouTube's relative date strings.
         """
-        # 5 week buckets (0 = this week … 4 = 4+ weeks ago)
+        # 5 week buckets (0 = this week … 4 = 4 weeks ago)
+        # Videos older than 4 weeks are discarded to avoid distorting the
+        # oldest bucket which previously lumped all 5+ week-old videos together.
         buckets: dict[int, int] = {i: 0 for i in range(5)}
 
         for video in results:
@@ -107,7 +109,9 @@ class TopicVelocityEngine:
             if age_days is None:
                 continue
 
-            week_index = min(age_days // 7, 4)
+            week_index = age_days // 7
+            if week_index > 4:
+                continue  # discard videos older than 4 weeks
             buckets[week_index] = buckets.get(week_index, 0) + 1
 
         # Convert to model — oldest first

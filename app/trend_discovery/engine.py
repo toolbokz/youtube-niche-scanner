@@ -3,13 +3,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.config import get_settings
 from app.connectors.google_trends import GoogleTrendsConnector
 from app.connectors.reddit import RedditConnector
 from app.connectors.youtube_autocomplete import YouTubeAutocompleteConnector
 from app.connectors.youtube_search import YouTubeSearchConnector
 from app.core.logging import get_logger
-from app.core.models import TrendData, TrendDirection, RedditSignal
+from app.core.models import TrendData, RedditSignal
 
 logger = get_logger(__name__)
 

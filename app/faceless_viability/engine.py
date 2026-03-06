@@ -1,9 +1,6 @@
 """Faceless Content Viability Analyzer."""
 from __future__ import annotations
 
-import re
-from typing import Any
-
 from app.core.logging import get_logger
 from app.core.models import FacelessFormat, FacelessViability
 

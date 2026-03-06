@@ -17,6 +17,7 @@ import {
     TrendingUp,
     Film,
     Factory,
+    Clapperboard,
 } from 'lucide-react';
 
 const navigation = [
@@ -24,6 +25,7 @@ const navigation = [
     { name: 'Discover Niches', href: '/discover', icon: Compass },
     { name: 'Video Strategy', href: '/strategy', icon: Video },
     { name: 'Video Factory', href: '/video-factory', icon: Factory },
+    { name: 'Video Editor', href: '/video-editor', icon: Clapperboard },
     { name: 'Compilation', href: '/compilation', icon: Film },
     { name: 'Thumbnail Insights', href: '/thumbnails', icon: Image },
     { name: 'Reports', href: '/reports', icon: FileText },

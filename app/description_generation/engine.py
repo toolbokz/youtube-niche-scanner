@@ -1,8 +1,6 @@
 """SEO Description Generator."""
 from __future__ import annotations
 
-from typing import Any
-
 from app.core.logging import get_logger
 from app.core.models import SEODescription, VideoIdea
 

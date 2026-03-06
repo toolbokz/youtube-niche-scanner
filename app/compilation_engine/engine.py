@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import math
 import re
+from datetime import datetime
 from typing import Any
 
 from app.compilation_engine.schemas import (
@@ -328,7 +329,7 @@ class _CompilationStrategyBuilder:
                 f"{top_views:,} views. Watch until the end for the #1 moment!"
             ),
             tags=[niche, f"{niche} compilation", f"best of {niche}", "top moments",
-                  f"{niche} highlights", "viral", "must watch", f"{niche} 2024",
+                  f"{niche} highlights", "viral", "must watch", f"{niche} {datetime.now().year}",
                   "compilation", "best clips"],
             target_audience=f"Fans of {niche} content aged 18-34",
             emotional_hook="Escalating reveals keep viewers guessing which clip is #1",

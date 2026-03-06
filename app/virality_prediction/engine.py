@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import re
-from typing import Any
 
 from app.core.logging import get_logger
 from app.core.models import ViralityMetrics
@@ -106,9 +105,9 @@ class ViralityPredictionEngine:
             if re.search(pattern, text, re.IGNORECASE):
                 matches += 1
 
-        # Normalize: hitting 30% of patterns = 100
+        # Calibrated: 50% pattern match = 100 (was 30% which caused saturation)
         ratio = matches / max(1, len(patterns))
-        return min(100.0, ratio * 333.0)
+        return min(100.0, ratio * 200.0)
 
     def _score_relatability(self, text: str) -> float:
         """Score how relatable the topic is to broad audiences."""

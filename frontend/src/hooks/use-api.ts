@@ -12,6 +12,11 @@ import {
     getAIVideoStrategy,
     getAITrendForecast,
     getDashboardData,
+    getDiscoveries,
+    getPersistedNiches,
+    getNicheVideoIdeas,
+    getVideoStrategies,
+    getCompilationStrategies,
 } from '@/services/api';
 import type { AnalyzeRequest, DiscoverRequest } from '@/types';
 import { useAppStore } from '@/store/app-store';
@@ -113,5 +118,48 @@ export function useDashboardData() {
         queryKey: ['dashboard-data'],
         queryFn: getDashboardData,
         staleTime: 2 * 60 * 1000, // 2 min
+    });
+}
+
+// ── Persistence / History ─────────────────────────────────────────────────────
+
+export function useDiscoveries(limit = 50) {
+    return useQuery({
+        queryKey: ['discoveries', limit],
+        queryFn: () => getDiscoveries(limit),
+        staleTime: 30_000,
+    });
+}
+
+export function usePersistedNiches(limit = 100, minScore = 0) {
+    return useQuery({
+        queryKey: ['persisted-niches', limit, minScore],
+        queryFn: () => getPersistedNiches(limit, minScore),
+        staleTime: 30_000,
+    });
+}
+
+export function useNicheVideoIdeas(nicheName: string) {
+    return useQuery({
+        queryKey: ['niche-video-ideas', nicheName],
+        queryFn: () => getNicheVideoIdeas(nicheName),
+        enabled: !!nicheName,
+        staleTime: 60_000,
+    });
+}
+
+export function useVideoStrategies(niche = '', limit = 50) {
+    return useQuery({
+        queryKey: ['video-strategies', niche, limit],
+        queryFn: () => getVideoStrategies(niche, limit),
+        staleTime: 30_000,
+    });
+}
+
+export function useCompilationStrategies(niche = '', limit = 50) {
+    return useQuery({
+        queryKey: ['compilation-strategies', niche, limit],
+        queryFn: () => getCompilationStrategies(niche, limit),
+        staleTime: 30_000,
     });
 }

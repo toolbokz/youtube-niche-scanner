@@ -1,7 +1,7 @@
 """Core Pydantic models for the Growth Strategist platform."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
@@ -33,7 +33,7 @@ class AutocompleteResult(BaseModel):
     query: str
     suggestions: list[str] = Field(default_factory=list)
     source: str = "youtube"
-    collected_at: datetime = Field(default_factory=datetime.utcnow)
+    collected_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class SearchResult(BaseModel):
@@ -258,7 +258,7 @@ class ChannelConcept(BaseModel):
 
 class NicheReport(BaseModel):
     """Full niche discovery report."""
-    generated_at: datetime = Field(default_factory=datetime.utcnow)
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     seed_keywords: list[str] = Field(default_factory=list)
     top_niches: list[NicheScore] = Field(default_factory=list)
     channel_concepts: list[ChannelConcept] = Field(default_factory=list)

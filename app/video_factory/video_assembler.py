@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-from pathlib import Path
 
 from app.core.logging import get_logger
 from app.video_factory.models import (
@@ -330,7 +329,15 @@ class CompilationAssembler:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            _, stderr_bytes = await proc.communicate()
+            try:
+                _, stderr_bytes = await asyncio.wait_for(
+                    proc.communicate(), timeout=1800.0,  # 30 min max for final encode
+                )
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                logger.warning("ffmpeg_concat_timeout", timeout=1800)
+                return False
 
             if proc.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
                 return True

@@ -6,6 +6,7 @@ hashtags, chapters, and SEO keywords.
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any
 
 from app.core.logging import get_logger
@@ -153,7 +154,7 @@ class MetadataGenerator:
             f"{niche} tips",
             f"{niche} guide",
             f"best {niche}",
-            f"{niche} 2024",
+            f"{niche} {datetime.now().year}",
             "tips and tricks",
             "how to",
             "guide",

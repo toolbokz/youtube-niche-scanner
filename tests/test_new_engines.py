@@ -495,8 +495,10 @@ class TestRankingEngineUpdated:
         }
         ranked = engine.rank_niches(niche_data)
         assert len(ranked) == 1
-        assert ranked[0].viral_opportunity_score == 0.0
-        assert ranked[0].topic_velocity_score == 0.0
+        # Defaults changed from 0.0 to 30.0 to avoid penalising niches
+        # that simply haven't been analysed for these signals yet.
+        assert ranked[0].viral_opportunity_score == 30.0
+        assert ranked[0].topic_velocity_score == 30.0
 
 
 # ═══════════════════════════════════════════════════════════════════════

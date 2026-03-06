@@ -294,7 +294,7 @@ def create_app() -> FastAPI:
                 videos_per_niche=request.videos_per_niche,
             )
 
-            return AnalyzeResponse(
+            response = AnalyzeResponse(
                 status="success",
                 seed_keywords=report.seed_keywords,
                 top_niches=[n.model_dump(mode="json") for n in report.top_niches],
@@ -318,6 +318,18 @@ def create_app() -> FastAPI:
                 ai_insights=report.ai_insights,
                 metadata=report.metadata,
             )
+
+            # Persist to database (fire-and-forget, don't block response)
+            try:
+                from app.database.persistence import persist_analysis_run
+                await persist_analysis_run(
+                    seed_keywords=request.seed_keywords,
+                    report_data=response.model_dump(mode="json"),
+                )
+            except Exception as persist_err:
+                logger.warning("analyze_persist_error", error=str(persist_err))
+
+            return response
         except Exception as e:
             logger.error("analyze_error", error=str(e))
             raise HTTPException(status_code=500, detail=str(e))
@@ -340,7 +352,7 @@ def create_app() -> FastAPI:
                 videos_per_niche=request.videos_per_niche,
             )
 
-            return AnalyzeResponse(
+            response = AnalyzeResponse(
                 status="success",
                 seed_keywords=report.seed_keywords,
                 top_niches=[n.model_dump(mode="json") for n in report.top_niches],
@@ -364,6 +376,18 @@ def create_app() -> FastAPI:
                 ai_insights=report.ai_insights,
                 metadata=report.metadata,
             )
+
+            # Persist to database
+            try:
+                from app.database.persistence import persist_analysis_run
+                await persist_analysis_run(
+                    seed_keywords=report.seed_keywords,
+                    report_data=response.model_dump(mode="json"),
+                )
+            except Exception as persist_err:
+                logger.warning("discover_persist_error", error=str(persist_err))
+
+            return response
         except Exception as e:
             logger.error("discover_error", error=str(e))
             raise HTTPException(status_code=500, detail=str(e))
@@ -445,6 +469,14 @@ def create_app() -> FastAPI:
         result = await generate_video_strategy(niche, keywords, count=count)
         if "error" in result:
             raise HTTPException(status_code=503, detail=result["error"])
+
+        # Persist video strategy to database
+        try:
+            from app.database.persistence import persist_video_strategy
+            await persist_video_strategy(niche, keywords, result)
+        except Exception as persist_err:
+            logger.warning("video_strategy_persist_error", error=str(persist_err))
+
         return {"status": "success", "video_strategy": result}
 
     @app.get("/ai/trend-forecast")
@@ -501,13 +533,75 @@ def create_app() -> FastAPI:
         try:
             analyzer = CompilationAnalyzer(_pipeline.yt_search)
             strategy = await analyzer.analyze(niche, kw_list, use_ai=use_ai)
+            strategy_dict = strategy.model_dump(mode="json")
+
+            # Persist compilation strategy to database
+            try:
+                from app.database.persistence import persist_compilation_strategy
+                await persist_compilation_strategy(niche, kw_list, strategy_dict)
+            except Exception as persist_err:
+                logger.warning("compilation_strategy_persist_error", error=str(persist_err))
+
             return {
                 "status": "success",
-                "compilation_strategy": strategy.model_dump(mode="json"),
+                "compilation_strategy": strategy_dict,
             }
         except Exception as e:
             logger.error("compilation_strategy_error", niche=niche, error=str(e))
             raise HTTPException(status_code=500, detail=str(e))
+
+    # ── History / Persistence endpoints ────────────────────────────────
+
+    @app.get("/discoveries")
+    async def list_discoveries(
+        limit: int = Query(default=50, ge=1, le=200),
+    ) -> dict[str, Any]:
+        """List past analysis/discovery runs persisted in the database."""
+        from app.database.persistence import get_analysis_runs
+        runs = await get_analysis_runs(limit=limit)
+        return {"discoveries": runs, "total": len(runs)}
+
+    @app.get("/persisted-niches")
+    async def list_persisted_niches(
+        limit: int = Query(default=100, ge=1, le=500),
+        min_score: float = Query(default=0.0, ge=0.0),
+    ) -> dict[str, Any]:
+        """List niches persisted from past analysis runs."""
+        from app.database.persistence import get_persisted_niches
+        niches = await get_persisted_niches(limit=limit, min_score=min_score)
+        return {"niches": niches, "total": len(niches)}
+
+    @app.get("/persisted-niches/{niche_name}/video-ideas")
+    async def list_niche_video_ideas(
+        niche_name: str,
+        limit: int = Query(default=50, ge=1, le=200),
+    ) -> dict[str, Any]:
+        """List video ideas (blueprints) for a persisted niche."""
+        from app.database.persistence import get_video_ideas_for_niche
+        ideas = await get_video_ideas_for_niche(niche_name, limit=limit)
+        return {"niche": niche_name, "video_ideas": ideas, "total": len(ideas)}
+
+    @app.get("/video-strategies")
+    async def list_video_strategies(
+        niche: str = Query(default="", description="Filter by niche (optional)"),
+        limit: int = Query(default=50, ge=1, le=200),
+    ) -> dict[str, Any]:
+        """List past AI video strategies persisted in the database."""
+        from app.database.persistence import get_video_strategies
+        niche_filter = niche if niche else None
+        strategies = await get_video_strategies(niche=niche_filter, limit=limit)
+        return {"video_strategies": strategies, "total": len(strategies)}
+
+    @app.get("/compilation-strategies")
+    async def list_compilation_strategies(
+        niche: str = Query(default="", description="Filter by niche (optional)"),
+        limit: int = Query(default=50, ge=1, le=200),
+    ) -> dict[str, Any]:
+        """List past compilation strategies persisted in the database."""
+        from app.database.persistence import get_compilation_strategies
+        niche_filter = niche if niche else None
+        strategies = await get_compilation_strategies(niche=niche_filter, limit=limit)
+        return {"compilation_strategies": strategies, "total": len(strategies)}
 
     # ── Reports endpoints ──────────────────────────────────────────────
 
@@ -1099,6 +1193,261 @@ def create_app() -> FastAPI:
             "job_id": job_id,
             "files_deleted": files_deleted,
         }
+
+    # ══════════════════════════════════════════════════════════════════
+    #  VIDEO EDITOR — Timeline editing & preview rendering endpoints
+    # ══════════════════════════════════════════════════════════════════
+
+    class EditorTimelineSaveRequest(BaseModel):
+        """Request body to save an editor timeline for a job."""
+        job_id: str = Field(..., description="The job to save timeline for")
+        clips: list[dict[str, Any]] = Field(default_factory=list)
+        transitions: list[dict[str, Any]] = Field(default_factory=list)
+        markers: list[dict[str, Any]] = Field(default_factory=list)
+        text_overlays: list[dict[str, Any]] = Field(default_factory=list)
+        orientation: str = Field(default="horizontal")
+        resolution: str = Field(default="1080p")
+        target_duration_seconds: float = Field(default=480)
+        max_scene_duration: float | None = None
+        background_audio: str = Field(default="none")
+
+    class EditorRenderRequest(BaseModel):
+        """Request body to trigger a render from the editor."""
+        job_id: str = Field(..., description="Source job ID")
+        is_preview: bool = Field(default=False, description="Quick 720p preview or full render")
+        clips: list[dict[str, Any]] = Field(default_factory=list)
+        transitions: list[dict[str, Any]] = Field(default_factory=list)
+        markers: list[dict[str, Any]] = Field(default_factory=list)
+        text_overlays: list[dict[str, Any]] = Field(default_factory=list)
+        orientation: str = Field(default="horizontal")
+        resolution: str = Field(default="1080p")
+        target_duration_seconds: float = Field(default=480)
+        max_scene_duration: float | None = None
+        background_audio: str = Field(default="none")
+
+    @app.get("/video-editor/clips/{job_id}")
+    async def editor_get_clips(job_id: str) -> dict[str, Any]:
+        """Get clip library for a completed job.
+
+        Returns all extracted clips with file paths for the
+        editor clip library panel.
+        """
+        from app.video_factory.job_manager import get_job_manager
+
+        manager = get_job_manager()
+        job = await manager.get_job(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        if not job.output:
+            raise HTTPException(status_code=400, detail="Job has no output yet")
+
+        clips = []
+        for c in (job.output.extraction.clips or []):
+            clips.append({
+                "clip_id": c.clip_id,
+                "source_video_id": c.source_video_id,
+                "source_file_path": c.file_path,
+                "start_seconds": c.start_seconds,
+                "end_seconds": c.end_seconds,
+                "duration_seconds": c.duration_seconds,
+                "segment_type": c.segment_type,
+                "energy_level": c.energy_level,
+                "position": c.position,
+                "is_valid": c.is_valid,
+                "width": c.width,
+                "height": c.height,
+                "file_size_mb": c.file_size_mb,
+            })
+
+        # Also include the compiled timeline order
+        timeline_entries = []
+        if job.output.timeline and job.output.timeline.entries:
+            for e in job.output.timeline.entries:
+                timeline_entries.append({
+                    "position": e.position,
+                    "clip_id": e.clip_id,
+                    "clip_file_path": e.clip_file_path,
+                    "source_video_id": e.source_video_id,
+                    "start_seconds": e.start_seconds,
+                    "end_seconds": e.end_seconds,
+                    "duration_seconds": e.duration_seconds,
+                    "segment_type": e.segment_type,
+                    "energy_level": e.energy_level,
+                    "transition": e.transition,
+                })
+
+        return {
+            "job_id": job_id,
+            "niche": job.niche,
+            "clips": clips,
+            "timeline": timeline_entries,
+            "total_duration": job.output.timeline.total_duration_seconds if job.output.timeline else 0,
+            "settings": job.settings.model_dump() if job.settings else None,
+        }
+
+    @app.post("/video-editor/save-timeline")
+    async def editor_save_timeline(body: EditorTimelineSaveRequest) -> dict[str, Any]:
+        """Save the current editor timeline state.
+
+        Persists the timeline configuration to disk so it can
+        be reloaded later.
+        """
+        import json as json_mod
+
+        job_dir = Path("data/video_factory") / body.job_id
+        job_dir.mkdir(parents=True, exist_ok=True)
+        timeline_path = job_dir / "editor_timeline.json"
+
+        timeline_data = body.model_dump()
+        with open(timeline_path, "w") as f:
+            json_mod.dump(timeline_data, f, indent=2)
+
+        logger.info("editor_timeline_saved", job_id=body.job_id, clips=len(body.clips))
+
+        return {
+            "status": "saved",
+            "job_id": body.job_id,
+            "clips_count": len(body.clips),
+            "file": str(timeline_path),
+        }
+
+    @app.get("/video-editor/load-timeline/{job_id}")
+    async def editor_load_timeline(job_id: str) -> dict[str, Any]:
+        """Load a previously saved editor timeline."""
+        import json as json_mod
+
+        timeline_path = Path("data/video_factory") / job_id / "editor_timeline.json"
+
+        if not timeline_path.exists():
+            return {"job_id": job_id, "found": False, "timeline": None}
+
+        with open(timeline_path) as f:
+            data = json_mod.load(f)
+
+        return {"job_id": job_id, "found": True, "timeline": data}
+
+    # In-memory tracker for editor renders
+    _editor_renders: dict[str, dict[str, Any]] = {}
+
+    @app.post("/video-editor/render")
+    async def editor_render(body: EditorRenderRequest, background_tasks: BackgroundTasks) -> dict[str, Any]:
+        """Trigger a render from the editor timeline.
+
+        Runs asynchronously in the background. Returns a render_id
+        for polling status. Preview renders use 720p / ultrafast.
+        """
+        import uuid
+        from app.video_factory.timeline_engine import TimelineEngine
+
+        render_id = str(uuid.uuid4())[:12]
+        render_type = "preview" if body.is_preview else "final"
+
+        # Parse the payload
+        engine = TimelineEngine(output_dir="data/video_factory")
+        payload = body.model_dump()
+        payload["is_preview"] = body.is_preview
+
+        _editor_renders[render_id] = {
+            "render_id": render_id,
+            "job_id": body.job_id,
+            "type": render_type,
+            "status": "queued",
+            "progress_pct": 0.0,
+            "output_path": None,
+            "error": None,
+        }
+
+        async def _do_render():
+            try:
+                _editor_renders[render_id]["status"] = "rendering"
+                config = TimelineEngine.parse_timeline_payload(payload)
+
+                def _on_progress(pct: float):
+                    _editor_renders[render_id]["progress_pct"] = pct
+
+                output = await engine.render(
+                    config=config,
+                    job_id=f"{body.job_id}_editor_{render_id}",
+                    on_progress=_on_progress,
+                )
+                _editor_renders[render_id]["status"] = "completed"
+                _editor_renders[render_id]["progress_pct"] = 100.0
+                _editor_renders[render_id]["output_path"] = output
+            except Exception as exc:
+                logger.error("editor_render_failed", render_id=render_id, error=str(exc))
+                _editor_renders[render_id]["status"] = "failed"
+                _editor_renders[render_id]["error"] = str(exc)
+
+        background_tasks.add_task(_do_render)
+
+        return {
+            "render_id": render_id,
+            "job_id": body.job_id,
+            "type": render_type,
+            "status": "queued",
+        }
+
+    @app.get("/video-editor/render-status/{render_id}")
+    async def editor_render_status(render_id: str) -> dict[str, Any]:
+        """Poll editor render progress."""
+        info = _editor_renders.get(render_id)
+        if not info:
+            raise HTTPException(status_code=404, detail="Render not found")
+        return info
+
+    @app.get("/video-editor/render-stream/{render_id}")
+    async def editor_render_stream(render_id: str, request: Request) -> Response:
+        """Stream a rendered editor video with Range support."""
+        info = _editor_renders.get(render_id)
+        if not info:
+            raise HTTPException(status_code=404, detail="Render not found")
+        if info["status"] != "completed" or not info["output_path"]:
+            raise HTTPException(status_code=400, detail="Render not ready")
+
+        video_path = Path(info["output_path"])
+        if not video_path.exists():
+            raise HTTPException(status_code=404, detail="Rendered file not found")
+
+        file_size = video_path.stat().st_size
+        range_header = request.headers.get("range")
+
+        if range_header:
+            range_spec = range_header.replace("bytes=", "")
+            parts = range_spec.split("-")
+            start = int(parts[0]) if parts[0] else 0
+            end = int(parts[1]) if parts[1] else file_size - 1
+            end = min(end, file_size - 1)
+            content_length = end - start + 1
+
+            def _iter_range():
+                with open(video_path, "rb") as f:
+                    f.seek(start)
+                    remaining = content_length
+                    while remaining > 0:
+                        chunk = f.read(min(65536, remaining))
+                        if not chunk:
+                            break
+                        remaining -= len(chunk)
+                        yield chunk
+
+            from starlette.responses import StreamingResponse
+            return StreamingResponse(
+                _iter_range(),
+                status_code=206,
+                media_type="video/mp4",
+                headers={
+                    "Content-Range": f"bytes {start}-{end}/{file_size}",
+                    "Accept-Ranges": "bytes",
+                    "Content-Length": str(content_length),
+                },
+            )
+        else:
+            from starlette.responses import FileResponse
+            return FileResponse(
+                path=str(video_path),
+                media_type="video/mp4",
+                headers={"Accept-Ranges": "bytes", "Content-Length": str(file_size)},
+            )
 
     return app
 

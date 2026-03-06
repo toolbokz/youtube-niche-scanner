@@ -2,11 +2,9 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
 from typing import Any
 from urllib.parse import quote_plus
 
-from bs4 import BeautifulSoup
 import json
 
 from app.config.settings import ConnectorConfig

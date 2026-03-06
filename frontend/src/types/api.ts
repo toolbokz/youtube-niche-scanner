@@ -416,3 +416,191 @@ export interface VideoFactoryJobSummary {
     created_at: string;
     error: string;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  Video Editor Types
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export interface EditorClip {
+    clip_id: string;
+    source_video_id: string;
+    source_file_path: string;
+    start_seconds: number;
+    end_seconds: number;
+    duration_seconds: number;
+    position: number;
+    segment_type: string;
+    energy_level: string;
+    label: string;
+    trim_start: number | null;
+    trim_end: number | null;
+    is_valid?: boolean;
+    width?: number;
+    height?: number;
+    file_size_mb?: number;
+}
+
+export interface EditorTransition {
+    type: 'cut' | 'fade' | 'crossdissolve' | 'zoom';
+    duration_seconds: number;
+    after_clip_index: number;
+}
+
+export interface EditorMarker {
+    id: string;
+    timestamp: number;
+    label: string;
+    marker_type: 'note' | 'transition' | 'text' | 'sfx';
+    color: string;
+}
+
+export interface EditorTextOverlay {
+    id: string;
+    text: string;
+    start_seconds: number;
+    end_seconds: number;
+    font_size: number;
+    color: string;
+    position: 'top' | 'center' | 'bottom' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+    background_opacity: number;
+}
+
+export interface EditorTimeline {
+    clips: EditorClip[];
+    transitions: EditorTransition[];
+    markers: EditorMarker[];
+    text_overlays: EditorTextOverlay[];
+    orientation: 'horizontal' | 'vertical';
+    resolution: '720p' | '1080p' | '1440p' | '4k';
+    target_duration_seconds: number;
+    max_scene_duration: number | null;
+    background_audio: 'none' | 'ambient' | 'energetic';
+}
+
+export interface EditorClipsResponse {
+    job_id: string;
+    niche: string;
+    clips: EditorClip[];
+    timeline: Array<{
+        position: number;
+        clip_id: string;
+        clip_file_path: string;
+        source_video_id: string;
+        start_seconds: number;
+        end_seconds: number;
+        duration_seconds: number;
+        segment_type: string;
+        energy_level: string;
+        transition: string;
+    }>;
+    total_duration: number;
+    settings: Record<string, unknown> | null;
+}
+
+export interface EditorRenderRequest {
+    job_id: string;
+    is_preview: boolean;
+    clips: EditorClip[];
+    transitions: EditorTransition[];
+    markers: EditorMarker[];
+    text_overlays: EditorTextOverlay[];
+    orientation: string;
+    resolution: string;
+    target_duration_seconds: number;
+    max_scene_duration: number | null;
+    background_audio: string;
+}
+
+export interface EditorRenderResponse {
+    render_id: string;
+    job_id: string;
+    type: 'preview' | 'final';
+    status: string;
+}
+
+export interface EditorRenderStatus {
+    render_id: string;
+    job_id: string;
+    type: string;
+    status: 'queued' | 'rendering' | 'completed' | 'failed';
+    progress_pct: number;
+    output_path: string | null;
+    error: string | null;
+}
+
+export interface EditorTimelineSaveResponse {
+    status: string;
+    job_id: string;
+    clips_count: number;
+    file: string;
+}
+
+export interface EditorTimelineLoadResponse {
+    job_id: string;
+    found: boolean;
+    timeline: EditorTimeline | null;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  Persistence / History Types
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export interface DiscoveryRun {
+    id: number;
+    seed_keywords: string[];
+    status: string;
+    total_keywords: number;
+    total_niches: number;
+    started_at: string | null;
+    completed_at: string | null;
+    report_path: string | null;
+    metadata: Record<string, unknown>;
+}
+
+export interface PersistedNiche {
+    id: number;
+    niche: string;
+    keywords: string[];
+    demand_score: number;
+    competition_score: number;
+    trend_momentum: number;
+    virality_score: number;
+    ctr_potential: number;
+    faceless_viability: number;
+    viral_opportunity_score: number;
+    topic_velocity_score: number;
+    overall_score: number;
+    rank: number;
+    created_at: string | null;
+    updated_at: string | null;
+}
+
+export interface PersistedVideoIdea {
+    id: number;
+    niche: string;
+    title: string;
+    topic: string;
+    angle: string;
+    target_keywords: string[];
+    blueprint: Record<string, unknown>;
+    created_at: string | null;
+}
+
+export interface PersistedVideoStrategy {
+    id: number;
+    niche: string;
+    keywords: string[];
+    strategy: Record<string, unknown>;
+    video_count: number;
+    created_at: string | null;
+}
+
+export interface PersistedCompilationStrategy {
+    id: number;
+    niche: string;
+    keywords: string[];
+    strategy: Record<string, unknown>;
+    compilation_score: number;
+    total_source_videos: number;
+    created_at: string | null;
+}

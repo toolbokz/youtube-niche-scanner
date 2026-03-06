@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import re
 from collections import Counter, defaultdict
-from typing import Any
 
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -175,12 +174,20 @@ class NicheClusteringEngine:
                 )]
             return []
 
-        # Add small cluster keywords to the first large cluster for simplicity
+        # Add small cluster keywords to the first large cluster (without mutation)
         if small:
             extra_kws: list[str] = []
             for c in small:
                 extra_kws.extend(c.keywords)
-            large[0].keywords.extend(extra_kws)
-            large[0].size = len(large[0].keywords)
+            # Create a new cluster with merged keywords instead of mutating in-place
+            merged = large[0]
+            merged_keywords = list(merged.keywords) + extra_kws
+            large[0] = KeywordCluster(
+                cluster_id=merged.cluster_id,
+                name=merged.name,
+                keywords=merged_keywords,
+                seed_keyword=merged.seed_keyword,
+                size=len(merged_keywords),
+            )
 
         return large

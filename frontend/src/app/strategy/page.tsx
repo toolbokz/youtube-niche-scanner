@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useAppStore } from '@/store/app-store';
+import { useVideoStrategies } from '@/hooks/use-api';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -17,25 +18,91 @@ import {
     Lightbulb,
     FileText,
     Palette,
+    History,
 } from 'lucide-react';
 import { formatScore } from '@/lib/utils';
 
 export default function StrategyPage() {
     const analysisData = useAppStore((s) => s.analysisData);
     const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
+    const pastStrategies = useVideoStrategies('', 20);
 
     if (!analysisData) {
+        // Show past video strategies from database
+        const pastData = pastStrategies.data?.video_strategies || [];
+
         return (
             <div className="space-y-6">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">Video Strategy</h1>
                     <p className="text-muted-foreground">AI-powered video strategies for your niches.</p>
                 </div>
-                <EmptyState
-                    icon={Video}
-                    title="No strategy data"
-                    description="Run a niche analysis to generate video strategies."
-                />
+
+                {pastData.length > 0 ? (
+                    <>
+                        <Card>
+                            <CardHeader className="pb-3">
+                                <CardTitle className="flex items-center gap-2 text-base">
+                                    <History className="h-4 w-4" />
+                                    Past Video Strategies
+                                </CardTitle>
+                                <CardDescription>
+                                    {pastData.length} strategy generation{pastData.length !== 1 ? 's' : ''} saved from previous sessions
+                                </CardDescription>
+                            </CardHeader>
+                        </Card>
+
+                        {pastData.map((s) => {
+                            const videoIdeas = (s.strategy?.video_ideas as Array<Record<string, string>>) || [];
+                            return (
+                                <Card key={s.id}>
+                                    <CardHeader>
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <CardTitle className="text-lg">{s.niche}</CardTitle>
+                                                <CardDescription>
+                                                    {s.video_count} video ideas
+                                                    {s.created_at && (
+                                                        <span className="ml-2">
+                                                            &middot; Generated {new Date(s.created_at).toLocaleDateString()}
+                                                        </span>
+                                                    )}
+                                                </CardDescription>
+                                            </div>
+                                            {s.keywords.length > 0 && (
+                                                <div className="flex flex-wrap gap-1">
+                                                    {s.keywords.slice(0, 3).map((kw) => (
+                                                        <Badge key={kw} variant="outline" className="text-xs">{kw}</Badge>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </CardHeader>
+                                    <CardContent>
+                                        {videoIdeas.length > 0 && (
+                                            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                                                {videoIdeas.slice(0, 6).map((idea, i) => (
+                                                    <div key={i} className="rounded-lg border p-3">
+                                                        <p className="text-sm font-medium">{idea.title || idea.topic || `Idea ${i + 1}`}</p>
+                                                        {idea.description && (
+                                                            <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{idea.description}</p>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </CardContent>
+                                </Card>
+                            );
+                        })}
+                    </>
+                ) : (
+                    <EmptyState
+                        icon={Video}
+                        title="No strategy data"
+                        description="Run a niche analysis to generate video strategies."
+                    />
+                )}
             </div>
         );
     }

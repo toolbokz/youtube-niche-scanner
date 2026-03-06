@@ -222,6 +222,7 @@ class TestAIService:
         client = MagicMock()
         client.available = True
         client.generate_json.return_value = {"mock": True}
+        client.agenerate_json = AsyncMock(return_value={"mock": True})
         return client
 
     @pytest.mark.asyncio
@@ -232,7 +233,7 @@ class TestAIService:
                 {"niche": "ai tools", "overall_score": 80, "keywords": ["ai"]},
             ])
         assert "mock" in result
-        mock_client.generate_json.assert_called_once()
+        mock_client.agenerate_json.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_interpret_viral_opportunities(self, mock_client):

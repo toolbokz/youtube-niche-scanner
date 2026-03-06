@@ -1,7 +1,7 @@
 """SQLAlchemy database models and session management."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import AsyncGenerator
 
 from sqlalchemy import (
@@ -12,7 +12,6 @@ from sqlalchemy import (
     String,
     Text,
     JSON,
-    Boolean,
     Index,
 )
 from sqlalchemy.ext.asyncio import (
@@ -45,7 +44,7 @@ class KeywordRecord(Base):
     cluster_id = Column(Integer, nullable=True, index=True)
     search_volume_proxy = Column(Float, default=0.0)
     trend_momentum = Column(Float, default=0.0)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         Index("idx_keyword_source", "keyword", "source"),
@@ -68,8 +67,8 @@ class NicheRecord(Base):
     topic_velocity_score = Column(Float, default=0.0)
     overall_score = Column(Float, default=0.0)
     rank = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         Index("idx_niche_score", "overall_score"),
@@ -88,7 +87,7 @@ class VideoIdeaRecord(Base):
     angle = Column(String(500), default="")
     target_keywords = Column(JSON, default=list)
     blueprint = Column(JSON, default=dict)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class SearchResultRecord(Base):
@@ -103,7 +102,7 @@ class SearchResultRecord(Base):
     published_at = Column(DateTime, nullable=True)
     video_id = Column(String(20), default="", index=True)
     duration_seconds = Column(Integer, nullable=True)
-    collected_at = Column(DateTime, default=datetime.utcnow)
+    collected_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         Index("idx_search_query_collected", "query", "collected_at"),
@@ -120,7 +119,7 @@ class TrendRecord(Base):
     momentum_score = Column(Float, default=0.0)
     interest_data = Column(JSON, default=list)
     related_queries = Column(JSON, default=list)
-    collected_at = Column(DateTime, default=datetime.utcnow)
+    collected_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         Index("idx_trend_keyword_collected", "keyword", "collected_at"),
@@ -136,7 +135,7 @@ class AnalysisRun(Base):
     status = Column(String(50), default="pending", index=True)
     total_keywords = Column(Integer, default=0)
     total_niches = Column(Integer, default=0)
-    started_at = Column(DateTime, default=datetime.utcnow)
+    started_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     completed_at = Column(DateTime, nullable=True)
     report_path = Column(String(500), nullable=True)
     run_metadata = Column("metadata", JSON, default=dict)
@@ -155,11 +154,45 @@ class AIInsightRecord(Base):
     niche = Column(String(500), nullable=False, index=True)
     analysis_type = Column(String(100), nullable=False, index=True)
     response = Column(JSON, default=dict)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         Index("idx_ai_cache_lookup", "cache_key", "created_at"),
         Index("idx_ai_type_niche", "analysis_type", "niche"),
+    )
+
+
+class VideoStrategyRecord(Base):
+    """Persisted AI video strategy — survives server restarts and cache TTL expiry."""
+    __tablename__ = "video_strategies"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    niche = Column(String(500), nullable=False, index=True)
+    keywords = Column(JSON, default=list)
+    strategy = Column(JSON, default=dict)
+    video_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        Index("idx_vs_niche_created", "niche", "created_at"),
+    )
+
+
+class CompilationStrategyRecord(Base):
+    """Persisted compilation strategy — survives server restarts."""
+    __tablename__ = "compilation_strategies"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    niche = Column(String(500), nullable=False, index=True)
+    keywords = Column(JSON, default=list)
+    strategy = Column(JSON, default=dict)
+    compilation_score = Column(Float, default=0.0)
+    total_source_videos = Column(Integer, default=0)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        Index("idx_cs_niche_created", "niche", "created_at"),
+        Index("idx_cs_score", "compilation_score"),
     )
 
 
@@ -178,8 +211,8 @@ class VideoFactoryJobRecord(Base):
     config = Column(JSON, default=dict)
     settings_json = Column(JSON, default=dict)
     output_json = Column(JSON, default=dict)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     completed_at = Column(DateTime, nullable=True)
 
     __table_args__ = (

@@ -32,8 +32,7 @@ import os
 import shutil
 import time
 import uuid
-from datetime import datetime
-from pathlib import Path
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 from app.config.settings import get_settings
@@ -42,7 +41,6 @@ from app.core.logging import get_logger
 from app.video_factory.models import (
     JobStatus,
     VideoSettings,
-    AssemblyConfig,
     AssemblyResult,
     CompilationTimeline,
     CopyrightIssueInfo,
@@ -358,7 +356,7 @@ class FactoryOrchestrator:
                 "clips_used": len(timeline.entries),
                 "source_videos_used": len(download_result.downloaded),
                 "duration_seconds": timeline.total_duration_seconds,
-                "created_at": datetime.utcnow().isoformat(),
+                "created_at": datetime.now(timezone.utc).isoformat(),
                 "pipeline_duration_seconds": round(time.time() - t0, 1),
             }
             with open(os.path.join(output_dir, "manifest.json"), "w") as f:
@@ -366,7 +364,7 @@ class FactoryOrchestrator:
 
             # Mark complete
             output.status = JobStatus.COMPLETED
-            output.completed_at = datetime.utcnow()
+            output.completed_at = datetime.now(timezone.utc)
             self._report("completed", 100)
 
             logger.info(

@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 import statistics
-from datetime import datetime
-from typing import Any
 
 from app.connectors.youtube_search import YouTubeSearchConnector
 from app.core.logging import get_logger

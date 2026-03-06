@@ -11,9 +11,12 @@ VERTEX_REGION                  : region (default us-central1)
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from typing import Any
+
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from app.core.logging import get_logger
 
@@ -102,6 +105,12 @@ class VertexAIClient:
 
     # ── Core generation helpers ───────────────────────────────────────
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type((ConnectionError, TimeoutError, OSError)),
+        reraise=True,
+    )
     def generate_flash(
         self,
         prompt: str,
@@ -115,6 +124,12 @@ class VertexAIClient:
         response = self._flash_model.generate_content(prompt, generation_config=config)
         return response.text
 
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type((ConnectionError, TimeoutError, OSError)),
+        reraise=True,
+    )
     def generate_pro(
         self,
         prompt: str,
@@ -127,6 +142,32 @@ class VertexAIClient:
         config = self._make_config(temperature, max_tokens)
         response = self._pro_model.generate_content(prompt, generation_config=config)
         return response.text
+
+    async def agenerate_flash(
+        self,
+        prompt: str,
+        *,
+        temperature: float = _DEFAULT_TEMPERATURE,
+        max_tokens: int = _DEFAULT_MAX_TOKENS,
+    ) -> str:
+        """Async-safe Gemini Flash call (runs sync SDK in executor)."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None, lambda: self.generate_flash(prompt, temperature=temperature, max_tokens=max_tokens)
+        )
+
+    async def agenerate_pro(
+        self,
+        prompt: str,
+        *,
+        temperature: float = _DEFAULT_TEMPERATURE,
+        max_tokens: int = 8192,
+    ) -> str:
+        """Async-safe Gemini Pro call (runs sync SDK in executor)."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None, lambda: self.generate_pro(prompt, temperature=temperature, max_tokens=max_tokens)
+        )
 
     def _make_config(self, temperature: float, max_tokens: int) -> Any:
         """Build a GenerationConfig (imported lazily)."""
@@ -160,6 +201,23 @@ class VertexAIClient:
             else self.generate_flash(full_prompt, temperature=temperature, max_tokens=max_tokens)
         )
         return _parse_json_response(raw)
+
+    async def agenerate_json(
+        self,
+        prompt: str,
+        *,
+        use_pro: bool = False,
+        temperature: float = 0.4,
+        max_tokens: int = 8192,
+    ) -> dict[str, Any] | list[Any] | None:
+        """Async-safe JSON generation (runs sync SDK in executor)."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None,
+            lambda: self.generate_json(
+                prompt, use_pro=use_pro, temperature=temperature, max_tokens=max_tokens
+            ),
+        )
 
 
 # ── Singleton ────────────────────────────────────────────────────────────────

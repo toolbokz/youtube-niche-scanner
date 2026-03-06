@@ -330,7 +330,14 @@ class SegmentExtractor:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        _, stderr_bytes = await proc.communicate()
+        try:
+            _, stderr_bytes = await asyncio.wait_for(
+                proc.communicate(), timeout=300.0,  # 5 min per clip
+            )
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            raise RuntimeError(f"ffmpeg extraction timed out after 300s for {clip_id}")
 
         if proc.returncode != 0:
             stderr_text = stderr_bytes.decode(errors="replace")[-500:]
@@ -376,7 +383,9 @@ class SegmentExtractor:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL,
             )
-            stdout_bytes, _ = await proc.communicate()
+            stdout_bytes, _ = await asyncio.wait_for(
+                proc.communicate(), timeout=30.0,
+            )
             if proc.returncode == 0:
                 import json
                 data = json.loads(stdout_bytes.decode())

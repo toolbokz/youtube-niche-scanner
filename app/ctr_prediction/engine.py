@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from datetime import datetime
 
 from app.core.logging import get_logger
 from app.core.models import CTRMetrics
@@ -54,13 +54,23 @@ class CTRPredictionEngine:
         """Analyze CTR potential for a niche."""
         # Sample title templates for the niche
         sample_titles = self._generate_sample_titles(niche_name, keywords)
-        text = " ".join([niche_name] + keywords + sample_titles).lower()
 
-        title_curiosity = self._score_curiosity(text)
-        title_length = self._score_title_length(niche_name)
-        power_words = self._score_power_words(text)
-        numbers_lists = self._score_numbers_lists(text)
-        pattern_interrupt = self._score_pattern_interrupts(text)
+        # Score keywords separately from sample titles to avoid self-fulfilling inflation
+        keyword_text = " ".join([niche_name] + keywords).lower()
+        title_text = " ".join(sample_titles).lower()
+
+        # Curiosity & power words from actual keywords (not synthetic titles)
+        title_curiosity = self._score_curiosity(keyword_text)
+        power_words = self._score_power_words(keyword_text)
+
+        # Title length scored on sample titles (average length)
+        avg_title_len = sum(len(t) for t in sample_titles) / max(1, len(sample_titles))
+        title_length = self._score_title_length_chars(int(avg_title_len))
+
+        # These benefit from including both keywords and titles
+        combined_text = keyword_text + " " + title_text
+        numbers_lists = self._score_numbers_lists(combined_text)
+        pattern_interrupt = self._score_pattern_interrupts(combined_text)
         visual_concept = self._score_visual_concept(niche_name, keywords)
 
         # Composite CTR score
@@ -89,6 +99,7 @@ class CTRPredictionEngine:
 
     def _generate_sample_titles(self, niche: str, keywords: list[str]) -> list[str]:
         """Generate sample title variations for CTR analysis."""
+        year = datetime.now().year
         templates = [
             f"The Secret {niche} Nobody Tells You About",
             f"Top 10 {niche} That Will Blow Your Mind",
@@ -97,7 +108,7 @@ class CTRPredictionEngine:
             f"The REAL Truth About {niche}",
             f"{niche}: What They Don't Want You To Know",
             f"Stop Making These {niche} Mistakes",
-            f"How to Master {niche} in 2024",
+            f"How to Master {niche} in {year}",
         ]
         return templates
 
@@ -108,11 +119,11 @@ class CTRPredictionEngine:
             if re.search(pattern, text, re.IGNORECASE):
                 matches += 1
         ratio = matches / max(1, len(CURIOSITY_TRIGGERS))
-        return min(100.0, ratio * 500.0)
+        # Calibrated: 50% match = 100
+        return min(100.0, ratio * 200.0)
 
-    def _score_title_length(self, title: str) -> float:
-        """Score title length optimization (50-60 chars optimal)."""
-        length = len(title)
+    def _score_title_length_chars(self, length: int) -> float:
+        """Score title length optimization (50-60 chars optimal for YouTube)."""
         if 40 <= length <= 70:
             return 90.0
         elif 30 <= length <= 80:
@@ -143,7 +154,8 @@ class CTRPredictionEngine:
             if re.search(pattern, text):
                 matches += 1
         ratio = matches / max(1, len(PATTERN_INTERRUPTS))
-        return min(100.0, ratio * 400.0)
+        # Calibrated: 50% match = 100
+        return min(100.0, ratio * 200.0)
 
     def _score_visual_concept(self, niche: str, keywords: list[str]) -> float:
         """Score potential for strong thumbnail visual concepts."""

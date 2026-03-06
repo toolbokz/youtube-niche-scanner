@@ -7,8 +7,9 @@ so that completed/failed jobs survive server restarts.
 from __future__ import annotations
 
 import asyncio
+import threading
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select, delete as sa_delete, update as sa_update
@@ -67,8 +68,8 @@ def _record_to_job(row: VideoFactoryJobRecord) -> FactoryJob:
         current_stage=row.current_stage or "",
         stages_completed=row.stages_completed or [],
         output=output,
-        created_at=row.created_at or datetime.utcnow(),
-        updated_at=row.updated_at or datetime.utcnow(),
+        created_at=row.created_at or datetime.now(timezone.utc),
+        updated_at=row.updated_at or datetime.now(timezone.utc),
         completed_at=row.completed_at,
         error=row.error or "",
         config=row.config or {},
@@ -90,6 +91,8 @@ class FactoryJobManager:
         self._active_jobs: dict[str, FactoryJob] = {}
         self._semaphore = asyncio.Semaphore(_MAX_CONCURRENT_JOBS)
         self._tasks: dict[str, asyncio.Task] = {}
+        # Thread-safe lock for progress updates from worker threads
+        self._lock = threading.Lock()
 
     # ── Public API (all async) ─────────────────────────────────────────
 
@@ -126,7 +129,7 @@ class FactoryJobManager:
             for row in rows:
                 row.status = JobStatus.FAILED.value
                 row.error = "Server restarted — job was orphaned"
-                row.updated_at = datetime.utcnow()
+                row.updated_at = datetime.now(timezone.utc)
                 count += 1
             await session.commit()
 
@@ -232,7 +235,7 @@ class FactoryJobManager:
             if job:
                 job.status = JobStatus.FAILED
                 job.error = "Cancelled by user"
-                job.updated_at = datetime.utcnow()
+                job.updated_at = datetime.now(timezone.utc)
                 await self._persist_job(job)
                 self._active_jobs.pop(job_id, None)
             logger.info("factory_job_cancelled", job_id=job_id)
@@ -274,42 +277,38 @@ class FactoryJobManager:
 
                 orchestrator = FactoryOrchestrator(settings=settings)
 
-                # Wire up progress tracking
+                # Thread-safe progress tracking
                 def _on_progress(stage: str, pct: float) -> None:
-                    if job_id in self._active_jobs:
-                        self._active_jobs[job_id].current_stage = stage
-                        self._active_jobs[job_id].progress_pct = pct
-                        self._active_jobs[job_id].updated_at = datetime.utcnow()
-                        if stage not in self._active_jobs[job_id].stages_completed and pct > 0:
-                            if self._active_jobs[job_id].stages_completed:
-                                prev = self._active_jobs[job_id].stages_completed[-1]
-                                if prev != stage:
-                                    self._active_jobs[job_id].stages_completed.append(stage)
-                            else:
-                                self._active_jobs[job_id].stages_completed.append(stage)
+                    with self._lock:
+                        if job_id in self._active_jobs:
+                            active = self._active_jobs[job_id]
+                            active.current_stage = stage
+                            active.progress_pct = pct
+                            active.updated_at = datetime.now(timezone.utc)
+                            if stage not in active.stages_completed and pct > 0:
+                                if active.stages_completed:
+                                    if active.stages_completed[-1] != stage:
+                                        active.stages_completed.append(stage)
+                                else:
+                                    active.stages_completed.append(stage)
 
                 orchestrator.set_progress_callback(_on_progress)
 
-                # Run in a thread so synchronous ffmpeg/yt-dlp calls
-                # don't block the event loop.
-                loop = asyncio.get_running_loop()
-                output = await loop.run_in_executor(
-                    None,
-                    lambda: asyncio.run(
-                        orchestrator.run(
-                            niche=niche,
-                            job_id=job_id,
-                            settings=settings,
-                        )
-                    ),
+                # Run the orchestrator directly in the current event loop.
+                # The orchestrator's stages are async; FFmpeg/yt-dlp calls
+                # inside use asyncio.create_subprocess_exec which is non-blocking.
+                output = await orchestrator.run(
+                    niche=niche,
+                    job_id=job_id,
+                    settings=settings,
                 )
 
                 job.output = output
                 job.status = JobStatus.COMPLETED
                 job.progress_pct = 100.0
                 job.current_stage = "completed"
-                job.completed_at = datetime.utcnow()
-                job.updated_at = datetime.utcnow()
+                job.completed_at = datetime.now(timezone.utc)
+                job.updated_at = datetime.now(timezone.utc)
 
                 logger.info("factory_job_completed", job_id=job_id, niche=niche)
 
@@ -317,7 +316,7 @@ class FactoryJobManager:
                 job.status = JobStatus.FAILED
                 job.error = str(exc)
                 job.current_stage = "failed"
-                job.updated_at = datetime.utcnow()
+                job.updated_at = datetime.now(timezone.utc)
                 logger.error("factory_job_failed", job_id=job_id, error=str(exc))
 
             finally:

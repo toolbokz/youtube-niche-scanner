@@ -3,9 +3,8 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.ai.client import get_ai_client
@@ -36,7 +35,7 @@ async def _get_cached(analysis_type: str, niche: str, extra: str = "") -> dict[s
         from sqlalchemy import select
 
         key = _cache_key(analysis_type, niche, extra)
-        cutoff = datetime.utcnow() - timedelta(hours=_CACHE_TTL_HOURS)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=_CACHE_TTL_HOURS)
 
         async for session in get_session():
             stmt = (
@@ -110,7 +109,7 @@ async def analyze_niches(niches: list[dict[str, Any]]) -> dict[str, Any]:
 
     prompt = niche_analysis_prompt(niches)
     t0 = time.time()
-    result = client.generate_json(prompt, use_pro=True)
+    result = await client.agenerate_json(prompt, use_pro=True)
     elapsed = round(time.time() - t0, 2)
 
     if result is None:
@@ -141,7 +140,7 @@ async def interpret_viral_opportunities(
 
     prompt = viral_opportunity_prompt(niche_name, anomalies)
     t0 = time.time()
-    result = client.generate_json(prompt, use_pro=False)  # Flash
+    result = await client.agenerate_json(prompt, use_pro=False)  # Flash
     elapsed = round(time.time() - t0, 2)
 
     if result is None:
@@ -174,7 +173,7 @@ async def generate_video_strategy(
 
     prompt = video_strategy_prompt(niche_name, keywords, trend_data, competition_data, count)
     t0 = time.time()
-    result = client.generate_json(prompt, use_pro=False)
+    result = await client.agenerate_json(prompt, use_pro=False)
     elapsed = round(time.time() - t0, 2)
 
     if result is None:
@@ -205,7 +204,7 @@ async def analyze_thumbnail_patterns(
 
     prompt = thumbnail_strategy_prompt(niche_name, pattern_data)
     t0 = time.time()
-    result = client.generate_json(prompt, use_pro=False)
+    result = await client.agenerate_json(prompt, use_pro=False)
     elapsed = round(time.time() - t0, 2)
 
     if result is None:
@@ -237,7 +236,7 @@ async def forecast_trends(
 
     prompt = trend_forecast_prompt(velocities, niches)
     t0 = time.time()
-    result = client.generate_json(prompt, use_pro=True)
+    result = await client.agenerate_json(prompt, use_pro=True)
     elapsed = round(time.time() - t0, 2)
 
     if result is None:
@@ -266,7 +265,7 @@ async def get_quick_niche_insight(niche_data: dict[str, Any]) -> dict[str, Any]:
 
     prompt = quick_niche_insight_prompt(niche_data)
     t0 = time.time()
-    result = client.generate_json(prompt, use_pro=False)  # Flash for speed
+    result = await client.agenerate_json(prompt, use_pro=False)  # Flash for speed
     elapsed = round(time.time() - t0, 2)
 
     if result is None:
@@ -302,7 +301,7 @@ async def generate_compilation_strategy(
 
     prompt = compilation_strategy_prompt(niche_name, source_videos_json, segments_json, structure_json)
     t0 = time.time()
-    result = client.generate_json(prompt, use_pro=True)
+    result = await client.agenerate_json(prompt, use_pro=True)
     elapsed = round(time.time() - t0, 2)
 
     if result is None:

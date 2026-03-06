@@ -6,7 +6,7 @@ them into a final compilation video.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
@@ -252,7 +252,7 @@ class VideoFactoryOutput(BaseModel):
     thumbnail_path: str = ""
     metadata_path: str = ""
     # Status
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: datetime | None = None
     status: JobStatus = JobStatus.QUEUED
     error: str = ""
@@ -271,8 +271,8 @@ class FactoryJob(BaseModel):
     current_stage: str = ""
     stages_completed: list[str] = Field(default_factory=list)
     output: VideoFactoryOutput | None = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: datetime | None = None
     error: str = ""
     config: dict[str, Any] = Field(default_factory=dict)

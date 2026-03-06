@@ -11,7 +11,6 @@ overloading the system.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
 from typing import Any, Callable, Coroutine
 
 from app.config.settings import get_settings

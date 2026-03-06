@@ -2,12 +2,10 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
 
 from app.connectors.youtube_autocomplete import YouTubeAutocompleteConnector
 from app.connectors.keyword_scraper import KeywordScraperConnector
 from app.core.logging import get_logger
-from app.core.models import KeywordCluster
 
 logger = get_logger(__name__)
 
@@ -61,10 +59,18 @@ class KeywordExpansionEngine:
     async def expand_batch(
         self, seeds: list[str], use_prefixes: bool = False
     ) -> dict[str, list[str]]:
-        """Expand multiple seed keywords concurrently."""
-        tasks = [
-            self.expand_seed(seed, use_prefixes=use_prefixes) for seed in seeds
-        ]
+        """Expand multiple seed keywords with bounded concurrency.
+
+        Uses a semaphore to prevent HTTP thundering-herd when many seeds
+        are expanded simultaneously (each seed fires 8+ HTTP requests).
+        """
+        sem = asyncio.Semaphore(8)  # max 8 seeds expanding concurrently
+
+        async def _bounded(seed: str) -> list[str]:
+            async with sem:
+                return await self.expand_seed(seed, use_prefixes=use_prefixes)
+
+        tasks = [_bounded(seed) for seed in seeds]
         expanded_lists = await asyncio.gather(*tasks, return_exceptions=True)
 
         results: dict[str, list[str]] = {}

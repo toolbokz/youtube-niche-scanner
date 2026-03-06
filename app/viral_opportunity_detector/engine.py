@@ -6,8 +6,7 @@ Repeated anomalies in a niche signal strong opportunity.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta
-from typing import Any
+import re
 
 from app.connectors.youtube_search import YouTubeSearchConnector
 from app.core.logging import get_logger
@@ -184,7 +183,6 @@ class ViralOpportunityDetector:
         text = published_text.lower().strip()
 
         # Try common patterns
-        import re
         patterns: list[tuple[str, int]] = [
             (r"(\d+)\s*hour", 0),      # within a day
             (r"(\d+)\s*day", 1),

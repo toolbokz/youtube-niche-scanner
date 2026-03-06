@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -60,7 +60,7 @@ class ReportGenerationEngine:
     def save_json(self, report: NicheReport, filename: str | None = None) -> Path:
         """Save report as JSON."""
         if filename is None:
-            ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             filename = f"niche_report_{ts}.json"
 
         path = self.output_dir / filename
@@ -75,7 +75,7 @@ class ReportGenerationEngine:
     def save_markdown(self, report: NicheReport, filename: str | None = None) -> Path:
         """Save report as human-readable Markdown."""
         if filename is None:
-            ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
             filename = f"niche_report_{ts}.md"
 
         path = self.output_dir / filename
@@ -516,7 +516,7 @@ class ReportGenerationEngine:
         self, report: NicheReport, base_name: str | None = None
     ) -> dict[str, Path]:
         """Save report in all configured formats."""
-        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         base = base_name or f"niche_report_{ts}"
 
         paths: dict[str, Path] = {}

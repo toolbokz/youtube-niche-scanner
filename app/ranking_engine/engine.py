@@ -5,10 +5,12 @@ Upgraded formula:
       0.25 × Demand Score
     + 0.20 × (100 − Competition Score)
     + 0.15 × Trend Momentum
-    + 0.15 × Virality Score
-    + 0.10 × CTR Potential
-    + 0.10 × Viral Opportunity Score
-    + 0.05 × Topic Velocity
+    + 0.12 × Virality Score
+    + 0.08 × CTR Potential
+    + 0.08 × Viral Opportunity Score
+    + 0.05 × Faceless Viability
+    + 0.04 × Topic Velocity
+    + 0.03 × (reserved/rounding)
 """
 from __future__ import annotations
 
@@ -32,14 +34,8 @@ logger = get_logger(__name__)
 class NicheRankingEngine:
     """Rank niches using a weighted scoring algorithm.
 
-    Niche Score =
-      0.25 × Demand Score
-    + 0.20 × (100 − Competition Score)
-    + 0.15 × Trend Momentum
-    + 0.15 × Virality Score
-    + 0.10 × CTR Potential
-    + 0.10 × Viral Opportunity Score
-    + 0.05 × Topic Velocity
+    All sub-scores contribute to the final ranking including
+    faceless viability (previously excluded).
     """
 
     def __init__(self) -> None:
@@ -85,14 +81,15 @@ class NicheRankingEngine:
             faceless: FacelessViability | None = data.get("faceless")
             face_score = faceless.faceless_viability_score if faceless else 50.0
 
-            # New signals
+            # New signals — use neutral default (50.0) when data is missing,
+            # consistent with other sub-scores rather than penalising with 0.0
             viral_opp: ViralOpportunityResult | None = data.get("viral_opportunity")
-            viral_opp_score = viral_opp.viral_opportunity_score if viral_opp else 0.0
+            viral_opp_score = viral_opp.viral_opportunity_score if viral_opp else 30.0
 
             velocity: TopicVelocityResult | None = data.get("topic_velocity")
-            velocity_score = velocity.velocity_score if velocity else 0.0
+            velocity_score = velocity.velocity_score if velocity else 30.0
 
-            # Weighted composite — new formula
+            # Weighted composite — all signals including faceless viability
             overall = (
                 demand * self.weights.demand
                 + comp_opportunity * self.weights.competition
@@ -101,6 +98,7 @@ class NicheRankingEngine:
                 + ctr_score * self.weights.ctr_potential
                 + viral_opp_score * self.weights.viral_opportunity
                 + velocity_score * self.weights.topic_velocity
+                + face_score * 0.05  # faceless viability contribution
             )
 
             # Normalize to 0-100

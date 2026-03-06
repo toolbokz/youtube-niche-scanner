@@ -11,7 +11,6 @@ import json
 import os
 import re
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 from app.core.logging import get_logger
@@ -110,32 +109,43 @@ class YouTubeDownloader:
 
         result = DownloadResult(source_dir=source_dir)
 
-        for src in source_videos:
+        # Download videos in parallel (bounded to 3 concurrent)
+        sem = asyncio.Semaphore(3)
+
+        async def _bounded_download(src: dict[str, Any]) -> DownloadedVideo | dict[str, str]:
             video_id = src.get("video_id", "")
             url = src.get("url", "")
             if not url and video_id:
                 url = f"https://www.youtube.com/watch?v={video_id}"
             if not url:
-                result.failed.append({"video_id": video_id, "error": "No URL or video_id"})
-                continue
+                return {"video_id": video_id, "error": "No URL or video_id"}
 
-            try:
-                dl = await self._download_single(
-                    url=url,
-                    video_id=video_id,
-                    output_dir=source_dir,
-                )
-                result.downloaded.append(dl)
-                result.total_size_mb += dl.file_size_mb
-                logger.info(
-                    "source_video_downloaded",
-                    video_id=dl.video_id,
-                    size_mb=dl.file_size_mb,
-                    duration=dl.duration_seconds,
-                )
-            except Exception as exc:
-                result.failed.append({"video_id": video_id, "url": url, "error": str(exc)})
-                logger.warning("source_video_download_failed", video_id=video_id, error=str(exc))
+            async with sem:
+                try:
+                    dl = await self._download_single(
+                        url=url,
+                        video_id=video_id,
+                        output_dir=source_dir,
+                    )
+                    logger.info(
+                        "source_video_downloaded",
+                        video_id=dl.video_id,
+                        size_mb=dl.file_size_mb,
+                        duration=dl.duration_seconds,
+                    )
+                    return dl
+                except Exception as exc:
+                    logger.warning("source_video_download_failed", video_id=video_id, error=str(exc))
+                    return {"video_id": video_id, "url": url, "error": str(exc)}
+
+        outcomes = await asyncio.gather(*[_bounded_download(src) for src in source_videos])
+
+        for outcome in outcomes:
+            if isinstance(outcome, DownloadedVideo):
+                result.downloaded.append(outcome)
+                result.total_size_mb += outcome.file_size_mb
+            else:
+                result.failed.append(outcome)
 
         if not result.downloaded:
             raise RuntimeError(
@@ -194,7 +204,14 @@ class YouTubeDownloader:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout_bytes, stderr_bytes = await proc.communicate()
+        try:
+            stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                proc.communicate(), timeout=600.0,  # 10 min per video download
+            )
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            raise RuntimeError(f"yt-dlp download timed out after 600s for {video_id}")
 
         if proc.returncode != 0:
             stderr_text = stderr_bytes.decode(errors="replace")[-500:]

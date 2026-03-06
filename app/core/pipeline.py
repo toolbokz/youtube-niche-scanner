@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-from datetime import datetime
 from typing import Any
 
 from app.config import get_settings
@@ -41,7 +40,6 @@ from app.core.models import (
     ViralOpportunity,
     TopicVelocityResult,
     ThumbnailPatternResult,
-    DiscoverySource,
     KeywordCluster,
 )
 
@@ -101,6 +99,7 @@ class PipelineOrchestrator:
         self,
         cluster: KeywordCluster,
         demand_map: dict[str, float],
+        trend_map: dict[str, float] | None = None,
     ) -> tuple[str, dict[str, Any]]:
         """Analyse one niche — all its sub-tasks run concurrently."""
         async with self._niche_sem:
@@ -139,14 +138,19 @@ class PipelineOrchestrator:
             ctr = self.ctr_engine.analyze_niche(niche_name, keywords)
             faceless = self.faceless_engine.analyze_niche(niche_name, keywords)
 
-            # Demand score
+            # Demand score from expansion breadth + blended trend signal
             kw_demands = [demand_map.get(kw, 50.0) for kw in keywords if kw in demand_map]
             demand_score = sum(kw_demands) / len(kw_demands) if kw_demands else 50.0
+
+            # Trend momentum — from actual Google Trends momentum data
+            _tmap = trend_map or {}
+            kw_trends = [_tmap.get(kw, 0.0) for kw in keywords if kw in _tmap]
+            trend_momentum = sum(kw_trends) / len(kw_trends) if kw_trends else 50.0
 
             data: dict[str, Any] = {
                 "demand_score": demand_score,
                 "competition": competition,
-                "trend_momentum": demand_score,
+                "trend_momentum": trend_momentum,
                 "virality": virality,
                 "ctr": ctr,
                 "faceless": faceless,
@@ -203,10 +207,28 @@ class PipelineOrchestrator:
             all_keywords.extend(kw_list)
         all_keywords = list(dict.fromkeys(all_keywords))  # Deduplicate
 
-        # Build demand scores from seed trends
-        demand_map: dict[str, float] = {}
+        # Build trend momentum scores from seed trends
+        trend_map: dict[str, float] = {}
         for tr in seed_trend_results:
-            demand_map[tr["keyword"]] = tr["trend_momentum_score"]
+            trend_map[tr["keyword"]] = tr["trend_momentum_score"]
+
+        # Build demand proxy from keyword expansion breadth:
+        # keywords that expanded into more suggestions have higher demand.
+        demand_map: dict[str, float] = {}
+        for seed, expansions in expanded.items():
+            # More autocomplete suggestions → higher demand (normalized to 0-100)
+            expansion_score = min(100.0, len(expansions) * 3.0)
+            demand_map[seed] = expansion_score
+            # Expanded keywords inherit a fraction of the seed's demand
+            for kw in expansions:
+                demand_map.setdefault(kw, expansion_score * 0.7)
+        # Overlay trend data as supplemental demand signal
+        for kw, momentum in trend_map.items():
+            if kw in demand_map:
+                # Blend: 60% expansion breadth + 40% trend momentum
+                demand_map[kw] = demand_map[kw] * 0.6 + momentum * 0.4
+            else:
+                demand_map[kw] = momentum
 
         step_timings["steps_1_2_expand_trends"] = _elapsed_since(t0)
         logger.info("steps_1_2_done", keywords=len(all_keywords),
@@ -235,7 +257,7 @@ class PipelineOrchestrator:
         logger.info("steps_4_7_parallel_niche_analysis", niche_count=len(clusters))
 
         niche_results = await asyncio.gather(
-            *(self._analyze_single_niche(cluster, demand_map) for cluster in clusters),
+            *(self._analyze_single_niche(cluster, demand_map, trend_map) for cluster in clusters),
             return_exceptions=True,
         )
 
@@ -320,7 +342,7 @@ class PipelineOrchestrator:
             return concept, niche_name, blueprints
 
         # Strategy generation is CPU-bound, run in executor for parallelism
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         strategy_tasks = [
             loop.run_in_executor(None, _generate_for_niche, ns) for ns in top_niches
         ]

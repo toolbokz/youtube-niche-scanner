@@ -889,6 +889,14 @@ function VideoFactoryContent() {
                                         <RotateCcw className="mr-2 h-4 w-4" /> Edit & Rebuild
                                     </Button>
 
+                                    {/* Open in Editor */}
+                                    <Button
+                                        variant="outline"
+                                        onClick={() => window.location.href = `/video-editor?job=${activeJob.job_id}`}
+                                    >
+                                        <Scissors className="mr-2 h-4 w-4" /> Open in Editor
+                                    </Button>
+
                                     {/* Delete */}
                                     <Button variant="destructive" onClick={handleDelete} disabled={isDeleting}>
                                         {isDeleting ? (
