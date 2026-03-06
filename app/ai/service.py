@@ -12,6 +12,11 @@ from app.ai.prompts.niche_analysis import niche_analysis_prompt, quick_niche_ins
 from app.ai.prompts.strategy_generation import video_strategy_prompt, viral_opportunity_prompt
 from app.ai.prompts.trend_interpretation import trend_forecast_prompt
 from app.ai.prompts.thumbnail_analysis_ai import thumbnail_strategy_prompt
+from app.ai.prompts.title_generation import title_generation_prompt
+from app.ai.prompts.description_generation import description_generation_prompt
+from app.ai.prompts.thumbnail_generation import thumbnail_concept_prompt
+from app.ai.prompts.video_strategy_generation import video_ideas_prompt, channel_concept_prompt
+from app.ai.prompts.script_generation import script_structure_prompt
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -397,3 +402,296 @@ async def run_full_ai_analysis(report_data: dict[str, Any]) -> dict[str, Any]:
 
     logger.info("ai_full_analysis_complete", sections=list(results.keys()), total_time_s=elapsed)
     return results
+
+
+# ── Creative generation service methods ────────────────────────────────────────
+
+async def generate_titles(
+    topic: str,
+    niche: str,
+    keywords: list[str],
+    *,
+    trend_momentum: float = 0.0,
+    competition_score: float = 0.0,
+    virality_score: float = 0.0,
+    ctr_potential: float = 0.0,
+    target_audience: str = "",
+    video_angle: str = "",
+) -> dict[str, Any] | None:
+    """AI-generated CTR-optimised titles for a video idea (Gemini Flash).
+
+    Returns dict with curiosity_gap_titles, keyword_optimized_titles,
+    alternative_titles — or None on failure.
+    """
+    cache_extra = f"{topic}:{','.join(keywords[:5])}"
+    cached = await _get_cached("title_generation", niche, cache_extra)
+    if cached:
+        return cached
+
+    client = get_ai_client()
+    if not client.available:
+        return None
+
+    prompt = title_generation_prompt(
+        niche=niche,
+        topic=topic,
+        keywords=keywords,
+        angle=video_angle,
+        trend_momentum=trend_momentum,
+        competition_score=competition_score,
+        ctr_potential=ctr_potential,
+        virality_score=virality_score,
+    )
+    t0 = time.time()
+    result = await client.agenerate_json(prompt, use_pro=False)
+    elapsed = round(time.time() - t0, 2)
+
+    if result is None:
+        return None
+
+    # Validate expected keys
+    if not all(k in result for k in ("curiosity_gap_headline", "keyword_optimized_title")):
+        logger.warning("ai_title_generation_invalid_response", keys=list(result.keys()))
+        return None
+
+    result["_generation_time_s"] = elapsed
+    await _store_cache("title_generation", niche, result, cache_extra)
+    logger.info("ai_title_generation_done", niche=niche, topic=topic, time_s=elapsed)
+    return result
+
+
+async def generate_description(
+    title: str,
+    topic: str,
+    niche: str,
+    keywords: list[str],
+    *,
+    video_angle: str = "",
+    target_audience: str = "",
+    trend_momentum: float = 0.0,
+    competition_score: float = 0.0,
+) -> dict[str, Any] | None:
+    """AI-generated SEO description for a video (Gemini Flash).
+
+    Returns dict with intro_paragraph, video_summary, chapter_markers,
+    seo_keywords, cta_section, affiliate_section — or None on failure.
+    """
+    cache_extra = f"{title}:{topic}"
+    cached = await _get_cached("description_generation", niche, cache_extra)
+    if cached:
+        return cached
+
+    client = get_ai_client()
+    if not client.available:
+        return None
+
+    prompt = description_generation_prompt(
+        niche=niche,
+        topic=topic,
+        title=title,
+        keywords=keywords,
+        angle=video_angle,
+        trend_momentum=trend_momentum,
+        competition_score=competition_score,
+    )
+    t0 = time.time()
+    result = await client.agenerate_json(prompt, use_pro=False)
+    elapsed = round(time.time() - t0, 2)
+
+    if result is None:
+        return None
+
+    if "intro_paragraph" not in result:
+        logger.warning("ai_description_generation_invalid_response", keys=list(result.keys()))
+        return None
+
+    result["_generation_time_s"] = elapsed
+    await _store_cache("description_generation", niche, result, cache_extra)
+    logger.info("ai_description_generation_done", niche=niche, title=title, time_s=elapsed)
+    return result
+
+
+async def generate_thumbnail_concepts(
+    title: str,
+    topic: str,
+    niche: str,
+    *,
+    video_angle: str = "",
+    target_audience: str = "",
+    trend_momentum: float = 0.0,
+    virality_score: float = 0.0,
+) -> dict[str, Any] | None:
+    """AI-generated thumbnail visual concept (Gemini Flash).
+
+    Returns dict with emotion_trigger, visual_focal_point, contrast_strategy,
+    text_overlay, color_palette, layout_concept — or None on failure.
+    """
+    cache_extra = f"{title}:{topic}"
+    cached = await _get_cached("thumbnail_concept", niche, cache_extra)
+    if cached:
+        return cached
+
+    client = get_ai_client()
+    if not client.available:
+        return None
+
+    prompt = thumbnail_concept_prompt(
+        niche=niche,
+        title=title,
+        angle=video_angle,
+        virality_score=virality_score,
+    )
+    t0 = time.time()
+    result = await client.agenerate_json(prompt, use_pro=False)
+    elapsed = round(time.time() - t0, 2)
+
+    if result is None:
+        return None
+
+    if "emotion_trigger" not in result:
+        logger.warning("ai_thumbnail_concept_invalid_response", keys=list(result.keys()))
+        return None
+
+    result["_generation_time_s"] = elapsed
+    await _store_cache("thumbnail_concept", niche, result, cache_extra)
+    logger.info("ai_thumbnail_concept_done", niche=niche, title=title, time_s=elapsed)
+    return result
+
+
+async def generate_video_ideas_ai(
+    niche: str,
+    keywords: list[str],
+    *,
+    trend_momentum: float = 0.0,
+    competition_score: float = 0.0,
+    virality_score: float = 0.0,
+    faceless_formats: list[str] | None = None,
+    count: int = 15,
+) -> dict[str, Any] | None:
+    """AI-generated video idea titles and angles (Gemini Flash).
+
+    Returns dict with video_ideas list — or None on failure.
+    """
+    cache_extra = f"{','.join(keywords[:5])}:{count}"
+    cached = await _get_cached("video_ideas_ai", niche, cache_extra)
+    if cached:
+        return cached
+
+    client = get_ai_client()
+    if not client.available:
+        return None
+
+    prompt = video_ideas_prompt(
+        niche=niche,
+        keywords=keywords,
+        trend_momentum=trend_momentum,
+        competition_score=competition_score,
+        virality_score=virality_score,
+        count=count,
+    )
+    t0 = time.time()
+    result = await client.agenerate_json(prompt, use_pro=False)
+    elapsed = round(time.time() - t0, 2)
+
+    if result is None:
+        return None
+
+    if "video_ideas" not in result:
+        logger.warning("ai_video_ideas_invalid_response", keys=list(result.keys()))
+        return None
+
+    result["_generation_time_s"] = elapsed
+    await _store_cache("video_ideas_ai", niche, result, cache_extra)
+    logger.info("ai_video_ideas_done", niche=niche, count=count, time_s=elapsed)
+    return result
+
+
+async def generate_channel_concept_ai(
+    niche: str,
+    keywords: list[str],
+    *,
+    trend_momentum: float = 0.0,
+    competition_score: float = 0.0,
+    faceless_formats: list[str] | None = None,
+) -> dict[str, Any] | None:
+    """AI-generated channel names, audience persona, and positioning (Gemini Flash).
+
+    Returns dict with channel_name_ideas, audience_persona,
+    positioning_statement — or None on failure.
+    """
+    cache_extra = f"{','.join(keywords[:5])}"
+    cached = await _get_cached("channel_concept_ai", niche, cache_extra)
+    if cached:
+        return cached
+
+    client = get_ai_client()
+    if not client.available:
+        return None
+
+    prompt = channel_concept_prompt(
+        niche=niche,
+        keywords=keywords,
+        trend_momentum=trend_momentum,
+        competition_score=competition_score,
+    )
+    t0 = time.time()
+    result = await client.agenerate_json(prompt, use_pro=False)
+    elapsed = round(time.time() - t0, 2)
+
+    if result is None:
+        return None
+
+    if "channel_names" not in result:
+        logger.warning("ai_channel_concept_invalid_response", keys=list(result.keys()))
+        return None
+
+    result["_generation_time_s"] = elapsed
+    await _store_cache("channel_concept_ai", niche, result, cache_extra)
+    logger.info("ai_channel_concept_done", niche=niche, time_s=elapsed)
+    return result
+
+
+async def generate_script_structure(
+    title: str,
+    topic: str,
+    niche: str,
+    *,
+    video_angle: str = "",
+    target_audience: str = "",
+    video_duration_minutes: int = 10,
+) -> dict[str, Any] | None:
+    """AI-generated script structure / beat sheet (Gemini Flash).
+
+    Returns dict with hook, retention_pattern_interrupt, story_progression,
+    mid_video_curiosity_loop, final_payoff, cta_placement — or None on failure.
+    """
+    cache_extra = f"{title}:{topic}:{video_duration_minutes}"
+    cached = await _get_cached("script_structure", niche, cache_extra)
+    if cached:
+        return cached
+
+    client = get_ai_client()
+    if not client.available:
+        return None
+
+    prompt = script_structure_prompt(
+        niche=niche,
+        topic=topic,
+        angle=video_angle,
+        title=title,
+    )
+    t0 = time.time()
+    result = await client.agenerate_json(prompt, use_pro=False)
+    elapsed = round(time.time() - t0, 2)
+
+    if result is None:
+        return None
+
+    if "hook" not in result:
+        logger.warning("ai_script_structure_invalid_response", keys=list(result.keys()))
+        return None
+
+    result["_generation_time_s"] = elapsed
+    await _store_cache("script_structure", niche, result, cache_extra)
+    logger.info("ai_script_structure_done", niche=niche, title=title, time_s=elapsed)
+    return result

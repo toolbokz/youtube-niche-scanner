@@ -1,4 +1,4 @@
-"""Thumbnail Strategy Generator."""
+"""Thumbnail Strategy Generator — AI-first with template fallback."""
 from __future__ import annotations
 
 from typing import Any
@@ -9,7 +9,7 @@ from app.core.models import ThumbnailConcept, VideoIdea
 logger = get_logger(__name__)
 
 
-# ── Emotion → Visual Mapping ──────────────────────────────────────────────────
+# ── Emotion → Visual Mapping (fallback) ───────────────────────────────────────
 
 EMOTION_VISUALS: dict[str, dict[str, Any]] = {
     "curiosity": {
@@ -52,20 +52,74 @@ EMOTION_VISUALS: dict[str, dict[str, Any]] = {
 
 
 class ThumbnailStrategyGenerator:
-    """Generate optimized thumbnail concepts for video ideas."""
+    """Generate optimized thumbnail concepts using AI with template fallback."""
 
     def generate(self, video: VideoIdea, niche: str) -> ThumbnailConcept:
-        """Generate a thumbnail concept for a video idea."""
+        """Generate a thumbnail concept for a video idea.
+
+        Tries AI generation first; falls back to emotion→visual mapping on failure.
+        """
+        ai_result = self._try_ai_thumbnail(video, niche)
+        if ai_result:
+            return ai_result
+
+        return self._fallback_thumbnail(video, niche)
+
+    # ── AI-first path ──────────────────────────────────────────────────────
+
+    def _try_ai_thumbnail(self, video: VideoIdea, niche: str) -> ThumbnailConcept | None:
+        """Attempt AI-powered thumbnail concept generation."""
+        try:
+            from app.ai.client import get_ai_client
+            from app.ai.prompts.thumbnail_generation import thumbnail_concept_prompt
+
+            client = get_ai_client()
+            if not client.available:
+                return None
+
+            prompt = thumbnail_concept_prompt(
+                niche=niche,
+                title=video.title,
+                angle=video.angle or "",
+                ctr_potential=getattr(video, "ctr_potential", 0.0),
+                competition_score=getattr(video, "competition_score", 0.0),
+                virality_score=getattr(video, "virality_score", 0.0),
+            )
+            result = client.generate_json(prompt, use_pro=False)
+
+            if result and isinstance(result, dict) and "emotion_trigger" in result:
+                # Ensure color_palette is a list
+                palette = result.get("color_palette", ["#1a1a2e", "#e94560", "#ffffff"])
+                if isinstance(palette, str):
+                    palette = [palette]
+
+                concept = ThumbnailConcept(
+                    emotion_trigger=result["emotion_trigger"],
+                    contrast_strategy=result.get("contrast_strategy", ""),
+                    visual_focal_point=result.get("visual_focal_point", ""),
+                    text_overlay=result.get("text_overlay", ""),
+                    color_palette=palette,
+                    layout_concept=result.get("layout_concept", ""),
+                )
+                logger.info("ai_thumbnail_generation_success", title=video.title)
+                return concept
+
+        except Exception as exc:
+            logger.warning("ai_thumbnail_generation_failed", error=str(exc))
+
+        return None
+
+    # ── Template fallback ──────────────────────────────────────────────────
+
+    def _fallback_thumbnail(self, video: VideoIdea, niche: str) -> ThumbnailConcept:
+        """Generate thumbnail concept using static emotion mapping (fallback)."""
         emotion = self._detect_primary_emotion(video.title, video.angle)
         visuals = EMOTION_VISUALS.get(emotion, EMOTION_VISUALS["curiosity"])
 
-        # Text overlay
         text_overlay = self._generate_text_overlay(video.title)
-
-        # Layout concept
         layout = self._generate_layout(emotion, niche)
 
-        concept = ThumbnailConcept(
+        return ThumbnailConcept(
             emotion_trigger=emotion,
             contrast_strategy=visuals["contrast"],
             visual_focal_point=visuals["focal_point"],
@@ -73,8 +127,6 @@ class ThumbnailStrategyGenerator:
             color_palette=visuals["colors"],
             layout_concept=layout,
         )
-
-        return concept
 
     def _detect_primary_emotion(self, title: str, angle: str) -> str:
         """Detect the primary emotion that should drive the thumbnail."""
@@ -104,7 +156,6 @@ class ThumbnailStrategyGenerator:
         if len(words) <= 4:
             return title.upper()
 
-        # Extract the most impactful 2-4 words
         power_words = {"secret", "truth", "hidden", "never", "insane", "shocking",
                        "top", "best", "worst", "free", "money", "hack", "master"}
 
@@ -112,7 +163,6 @@ class ThumbnailStrategyGenerator:
         if len(important) >= 2:
             return " ".join(important[:3]).upper()
 
-        # Use first 3-4 impactful words
         return " ".join(words[:4]).upper() + "..."
 
     def _generate_layout(self, emotion: str, niche: str) -> str:

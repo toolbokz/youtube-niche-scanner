@@ -1,4 +1,4 @@
-"""SEO Description Generator."""
+"""SEO Description Generator — AI-first with template fallback."""
 from __future__ import annotations
 
 from app.core.logging import get_logger
@@ -8,36 +8,87 @@ logger = get_logger(__name__)
 
 
 class DescriptionGenerationEngine:
-    """Generate SEO-optimized YouTube video descriptions."""
+    """Generate SEO-optimized YouTube video descriptions using AI with template fallback."""
 
     def generate(self, video: VideoIdea, niche: str) -> SEODescription:
-        """Generate a complete SEO description for a video."""
+        """Generate a complete SEO description for a video.
+
+        Tries AI generation first; falls back to static templates on failure.
+        """
+        ai_result = self._try_ai_description(video, niche)
+        if ai_result:
+            return ai_result
+
+        return self._fallback_description(video, niche)
+
+    # ── AI-first path ──────────────────────────────────────────────────────
+
+    def _try_ai_description(self, video: VideoIdea, niche: str) -> SEODescription | None:
+        """Attempt AI-powered description generation."""
+        try:
+            from app.ai.client import get_ai_client
+            from app.ai.prompts.description_generation import description_generation_prompt
+
+            client = get_ai_client()
+            if not client.available:
+                return None
+
+            prompt = description_generation_prompt(
+                niche=niche,
+                topic=video.topic,
+                title=video.title,
+                keywords=video.target_keywords or [],
+                angle=video.angle or "",
+                trend_momentum=getattr(video, "trend_momentum", 0.0),
+                competition_score=getattr(video, "competition_score", 0.0),
+            )
+            result = client.generate_json(prompt, use_pro=False)
+
+            if result and isinstance(result, dict) and "intro_paragraph" in result:
+                # Build keyword block from AI response
+                keywords_from_ai = result.get("keyword_block", [])
+                keyword_block = self._build_keyword_block(
+                    video.target_keywords or [], niche
+                )
+                if keywords_from_ai:
+                    keyword_block = list(dict.fromkeys(keywords_from_ai + keyword_block))
+
+                desc = SEODescription(
+                    intro_paragraph=result["intro_paragraph"],
+                    keyword_block=keyword_block,
+                    chapters=result.get("chapters", []),
+                    cta_structure=result.get("cta_structure", self._build_cta(niche)),
+                    affiliate_positioning=result.get(
+                        "affiliate_positioning", self._build_affiliate_section(niche)
+                    ),
+                )
+                logger.info("ai_description_generation_success", title=video.title)
+                return desc
+
+        except Exception as exc:
+            logger.warning("ai_description_generation_failed", error=str(exc))
+
+        return None
+
+    # ── Template fallback ──────────────────────────────────────────────────
+
+    def _fallback_description(self, video: VideoIdea, niche: str) -> SEODescription:
+        """Generate description using static templates (fallback)."""
         keywords = video.target_keywords
 
-        # SEO intro paragraph
         intro = self._generate_intro(video.title, video.topic, niche)
-
-        # Keyword cluster block
         keyword_block = self._build_keyword_block(keywords, niche)
-
-        # Chapters suggestion
         chapters = self._suggest_chapters(video.topic, video.angle)
-
-        # CTA structure
         cta = self._build_cta(niche)
-
-        # Affiliate positioning
         affiliate = self._build_affiliate_section(niche)
 
-        desc = SEODescription(
+        return SEODescription(
             intro_paragraph=intro,
             keyword_block=keyword_block,
             chapters=chapters,
             cta_structure=cta,
             affiliate_positioning=affiliate,
         )
-
-        return desc
 
     def _generate_intro(self, title: str, topic: str, niche: str) -> str:
         """Generate SEO-optimized intro paragraph (first 150 chars visible)."""
@@ -54,11 +105,10 @@ class DescriptionGenerationEngine:
         """Build a keyword-rich tag block for the description."""
         block = [niche.lower()]
         block.extend(kw.lower() for kw in keywords[:10])
-        # Add common modifiers
         modifiers = ["guide", "tutorial", "tips", "explained", "2026", "best"]
         for mod in modifiers:
             block.append(f"{niche.lower()} {mod}")
-        return list(dict.fromkeys(block))  # Deduplicate
+        return list(dict.fromkeys(block))
 
     def _suggest_chapters(self, topic: str, angle: str) -> list[str]:
         """Suggest video chapters/timestamps."""

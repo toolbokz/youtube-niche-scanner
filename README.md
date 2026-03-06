@@ -20,6 +20,7 @@ A production-grade Python system that discovers highly profitable YouTube niches
 - **Video Blueprints** — Complete production plans including titles, thumbnails, script structures, production plans, and low-cost methods
 - **SEO Descriptions** — Keyword-optimized descriptions with chapters, CTAs, and affiliate positioning
 - **Monetization Strategy** — Affiliate products, sponsorship categories, digital products, lead magnets, and expansion roadmaps
+- **AI-First Creative Generation** — All content engines (titles, descriptions, thumbnails, scripts, video ideas, channel concepts, monetization copy) use Gemini Flash as the primary generation path with deterministic template fallbacks
 
 ---
 
@@ -45,6 +46,8 @@ app/
 ├── description_generation/ # SEO description generation
 ├── monetization_engine/   # Monetization strategy generation
 ├── report_generation/     # JSON + Markdown report output
+├── ai/             # Vertex AI client, service layer, prompt templates
+│   └── prompts/    # Structured Gemini prompt templates (10 files)
 ├── api/            # FastAPI endpoints
 └── cli.py          # Click-based CLI interface
 
@@ -268,10 +271,46 @@ Reports are saved to `data/reports/` in both JSON and Markdown format.
 
 ---
 
+## AI-First Creative Generation
+
+All content generation engines follow an **AI-first + template fallback** architecture:
+
+1. **AI path** — Engine calls `get_ai_client()` → builds a structured prompt → calls `client.generate_json()` via Gemini Flash → validates response keys → returns AI-generated content
+2. **Fallback path** — If AI is unavailable, returns an error, or produces invalid output, the engine falls back to deterministic template-based generation (the original logic)
+
+This ensures zero-downtime operation regardless of Vertex AI availability.
+
+### Prompt Templates
+
+| Template | File | Output |
+|----------|------|--------|
+| Title Generation | `app/ai/prompts/title_generation.py` | Curiosity-gap headline, SEO title, alternatives, formulas |
+| Description Generation | `app/ai/prompts/description_generation.py` | Intro paragraph, keyword block, chapters, CTA, affiliate positioning |
+| Thumbnail Concepts | `app/ai/prompts/thumbnail_generation.py` | Emotion trigger, contrast strategy, color palette, layout concept |
+| Video Strategy | `app/ai/prompts/video_strategy_generation.py` | Video ideas with titles/angles, channel names/positioning/persona |
+| Script Structure | `app/ai/prompts/script_generation.py` | Hook, retention interrupt, story arc, curiosity loop, payoff, CTA |
+
+### Engines Using AI-First Pattern
+
+| Engine | AI Prompt | Fallback |
+|--------|-----------|----------|
+| `TitleGenerationEngine` | `title_generation_prompt()` | 25 static title formulas |
+| `DescriptionGenerationEngine` | `description_generation_prompt()` | Static intro/chapters/CTA templates |
+| `ThumbnailStrategyGenerator` | `thumbnail_concept_prompt()` | 6-emotion visual mapping |
+| `VideoStrategyEngine` | `video_ideas_prompt()`, `channel_concept_prompt()` | 15 angle templates, 5 name patterns |
+| `BlueprintAssembler` | `script_structure_prompt()` | 6 static script section templates |
+| `MonetizationEngine` | Inline Gemini prompt | 5 product + 4 lead magnet templates |
+
+### Deterministic Engines (Not AI-ified)
+
+Ranking, CTR prediction, virality scoring, competition analysis, faceless viability, topic velocity, niche clustering, trend discovery, compilation engine, and video factory timeline/assembler remain deterministic.
+
+---
+
 ## Testing
 
 ```bash
-# Run all tests
+# Run all tests (315 tests)
 pytest tests/ -v
 
 # Run with coverage
@@ -301,7 +340,7 @@ docker run -p 8000:8000 growth-strategist
 ## Tech Stack
 
 ### Backend
-- **Python 3.11+** — Core language
+- **Python 3.12+** — Core language
 - **FastAPI** — API layer with GZip, orjson, CORS, Server-Timing
 - **SQLAlchemy** — Async ORM with SQLite (aiosqlite) / PostgreSQL (asyncpg)
 - **Pydantic v2** — Data validation and settings

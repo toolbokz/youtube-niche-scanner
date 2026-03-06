@@ -1,7 +1,8 @@
-"""Video Strategy Engine - generates channel concepts and video ideas."""
+"""Video Strategy Engine — AI-first channel concepts and video ideas with template fallback."""
 from __future__ import annotations
 
 import random
+from typing import Any
 
 from app.core.logging import get_logger
 from app.core.models import (
@@ -16,7 +17,7 @@ from app.core.models import (
 logger = get_logger(__name__)
 
 
-# ── RPM Estimates by Category ──────────────────────────────────────────────────
+# ── RPM Estimates by Category (deterministic — do NOT AI-ify) ──────────────────
 
 RPM_ESTIMATES: dict[str, tuple[float, float]] = {
     "finance": (12.0, 30.0),
@@ -42,7 +43,7 @@ RPM_ESTIMATES: dict[str, tuple[float, float]] = {
     "productivity": (5.0, 15.0),
 }
 
-# ── Video Angle Templates ─────────────────────────────────────────────────────
+# ── Video Angle Templates (fallback) ──────────────────────────────────────────
 
 ANGLE_TEMPLATES: list[str] = [
     "Beginner's guide / introduction",
@@ -64,7 +65,7 @@ ANGLE_TEMPLATES: list[str] = [
 
 
 class VideoStrategyEngine:
-    """Generate complete video strategies for top niches."""
+    """Generate complete video strategies for top niches using AI with template fallback."""
 
     def generate_channel_concept(
         self, niche: NicheScore, faceless: FacelessViability | None = None
@@ -73,22 +74,40 @@ class VideoStrategyEngine:
         niche_name = niche.niche
         keywords = niche.keywords
 
-        # Channel name ideas
-        channel_names = self._generate_channel_names(niche_name)
+        # Try AI-first for creative fields
+        ai_concept = self._try_ai_channel_concept(niche, faceless)
 
-        # Audience persona
-        audience = self._build_audience_persona(niche_name, keywords)
+        if ai_concept:
+            channel_names = ai_concept.get("channel_names", [])
+            audience_data = ai_concept.get("audience_persona", {})
+            positioning = ai_concept.get("positioning", "")
+        else:
+            channel_names = []
+            audience_data = {}
+            positioning = ""
 
-        # Content positioning
-        positioning = self._generate_positioning(niche_name, faceless)
+        # Fallback for each creative field if AI returned empty
+        if not channel_names:
+            channel_names = self._generate_channel_names(niche_name)
+        if not audience_data:
+            audience = self._build_audience_persona(niche_name, keywords)
+        else:
+            audience = AudiencePersona(
+                age_range=audience_data.get("age_range", "18-45"),
+                interests=audience_data.get("interests", [niche_name] + keywords[:5]),
+                pain_points=audience_data.get("pain_points", [
+                    f"Lack of clear information about {niche_name}",
+                ]),
+                content_preferences=audience_data.get("content_preferences", [
+                    "Visual explanations",
+                    "Data-driven content",
+                ]),
+            )
+        if not positioning:
+            positioning = self._generate_positioning(niche_name, faceless)
 
-        # Posting cadence based on production complexity
         cadence = self._suggest_cadence(niche_name, faceless)
-
-        # RPM estimate
         rpm_low, rpm_high = self._estimate_rpm(niche_name, keywords)
-
-        # Time to monetization
         months = self._estimate_monetization_time(niche)
 
         concept = ChannelConcept(
@@ -107,15 +126,27 @@ class VideoStrategyEngine:
     def generate_video_ideas(
         self, niche: NicheScore, count: int = 10
     ) -> list[VideoIdea]:
-        """Generate video ideas for a niche."""
-        ideas: list[VideoIdea] = []
+        """Generate video ideas for a niche.
+
+        Tries AI for titles/angles, falls back to templates.
+        """
+        # Try AI-first for video ideas
+        ai_ideas = self._try_ai_video_ideas(niche, count)
+        if ai_ideas and len(ai_ideas) >= count:
+            return ai_ideas[:count]
+
+        # Partial AI results + fill with templates
+        ideas: list[VideoIdea] = list(ai_ideas) if ai_ideas else []
+        remaining = count - len(ideas)
+
         niche_name = niche.niche
         keywords = niche.keywords[:10]
 
-        # Use angle templates
-        angles = random.sample(ANGLE_TEMPLATES, min(count, len(ANGLE_TEMPLATES)))
+        angles = random.sample(ANGLE_TEMPLATES, min(remaining, len(ANGLE_TEMPLATES)))
 
         for i, angle in enumerate(angles):
+            if len(ideas) >= count:
+                break
             keyword = keywords[i % len(keywords)] if keywords else niche_name
             title = self._create_title(niche_name, keyword, angle)
 
@@ -128,7 +159,6 @@ class VideoStrategyEngine:
                 difficulty=self._estimate_difficulty(angle),
             ))
 
-        # Fill remaining slots with keyword-driven ideas
         while len(ideas) < count and keywords:
             kw = keywords[len(ideas) % len(keywords)]
             angle = random.choice(ANGLE_TEMPLATES)
@@ -145,8 +175,97 @@ class VideoStrategyEngine:
         logger.info("video_ideas_generated", niche=niche_name, count=len(ideas))
         return ideas[:count]
 
+    # ── AI-first paths ─────────────────────────────────────────────────────
+
+    def _try_ai_channel_concept(
+        self, niche: NicheScore, faceless: FacelessViability | None
+    ) -> dict[str, Any] | None:
+        """Attempt AI-powered channel concept generation."""
+        try:
+            from app.ai.client import get_ai_client
+            from app.ai.prompts.video_strategy_generation import channel_concept_prompt
+
+            client = get_ai_client()
+            if not client.available:
+                return None
+
+            faceless_formats = []
+            if faceless and faceless.best_formats:
+                faceless_formats = [f.value for f in faceless.best_formats]
+
+            prompt = channel_concept_prompt(
+                niche=niche.niche,
+                keywords=niche.keywords,
+                trend_momentum=niche.trend_momentum,
+                competition_score=niche.competition_score,
+            )
+            result = client.generate_json(prompt, use_pro=False)
+
+            if result and isinstance(result, dict) and "channel_names" in result:
+                logger.info("ai_channel_concept_success", niche=niche.niche)
+                return result
+
+        except Exception as exc:
+            logger.warning("ai_channel_concept_failed", error=str(exc))
+
+        return None
+
+    def _try_ai_video_ideas(
+        self, niche: NicheScore, count: int
+    ) -> list[VideoIdea] | None:
+        """Attempt AI-powered video idea generation."""
+        try:
+            from app.ai.client import get_ai_client
+            from app.ai.prompts.video_strategy_generation import video_ideas_prompt
+
+            client = get_ai_client()
+            if not client.available:
+                return None
+
+            prompt = video_ideas_prompt(
+                niche=niche.niche,
+                keywords=niche.keywords,
+                trend_momentum=niche.trend_momentum,
+                competition_score=niche.competition_score,
+                virality_score=getattr(niche, "virality_score", 0.0),
+                count=count,
+            )
+            result = client.generate_json(prompt, use_pro=False)
+
+            if result and isinstance(result, dict):
+                raw_ideas = result.get("video_ideas", [])
+                if raw_ideas:
+                    ideas: list[VideoIdea] = []
+                    keywords = niche.keywords[:5]
+                    for item in raw_ideas:
+                        if isinstance(item, dict) and "title" in item:
+                            ideas.append(VideoIdea(
+                                title=item["title"],
+                                topic=item.get("topic", niche.niche),
+                                angle=item.get("angle", "General"),
+                                target_keywords=item.get("target_keywords", keywords),
+                                estimated_views=self._estimate_views(niche),
+                                difficulty=self._estimate_difficulty(
+                                    item.get("angle", "medium")
+                                ),
+                            ))
+                    if ideas:
+                        logger.info(
+                            "ai_video_ideas_success",
+                            niche=niche.niche,
+                            count=len(ideas),
+                        )
+                        return ideas
+
+        except Exception as exc:
+            logger.warning("ai_video_ideas_failed", error=str(exc))
+
+        return None
+
+    # ── Template fallback helpers ──────────────────────────────────────────
+
     def _generate_channel_names(self, niche: str) -> list[str]:
-        """Generate channel name suggestions."""
+        """Generate channel name suggestions (fallback)."""
         words = niche.split()
         core = words[0].capitalize() if words else "Channel"
         return [
@@ -158,7 +277,7 @@ class VideoStrategyEngine:
         ]
 
     def _build_audience_persona(self, niche: str, keywords: list[str]) -> AudiencePersona:
-        """Build an audience persona for the niche."""
+        """Build an audience persona for the niche (fallback)."""
         return AudiencePersona(
             age_range="18-45",
             interests=[niche] + keywords[:5],
@@ -178,7 +297,7 @@ class VideoStrategyEngine:
     def _generate_positioning(
         self, niche: str, faceless: FacelessViability | None
     ) -> str:
-        """Generate content positioning statement."""
+        """Generate content positioning statement (fallback)."""
         format_str = ""
         if faceless and faceless.best_formats:
             fmt = faceless.best_formats[0].value.replace("_", " ")
@@ -205,17 +324,18 @@ class VideoStrategyEngine:
 
         return "2-3 videos per week"
 
+    # ── Deterministic scoring (unchanged) ──────────────────────────────────
+
     def _estimate_rpm(self, niche: str, keywords: list[str]) -> tuple[float, float]:
         """Estimate RPM range based on niche category."""
         text = (niche + " " + " ".join(keywords)).lower()
         for category, (low, high) in RPM_ESTIMATES.items():
             if category in text:
                 return (low, high)
-        return (3.0, 10.0)  # Default
+        return (3.0, 10.0)
 
     def _estimate_monetization_time(self, niche: NicheScore) -> int:
         """Estimate months to YouTube Partner Program eligibility."""
-        # Lower competition + higher trend = faster growth
         growth_factor = (100 - niche.competition_score) * 0.5 + niche.trend_momentum * 0.5
         if growth_factor > 70:
             return 3
@@ -226,7 +346,7 @@ class VideoStrategyEngine:
         return 12
 
     def _create_title(self, niche: str, keyword: str, angle: str) -> str:
-        """Create a video title based on niche, keyword, and angle."""
+        """Create a video title based on niche, keyword, and angle (fallback)."""
         templates = {
             "beginner": f"{keyword.title()}: Complete Beginner's Guide",
             "deep dive": f"The Truth About {keyword.title()} Nobody Tells You",

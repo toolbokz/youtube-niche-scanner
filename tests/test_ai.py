@@ -200,6 +200,73 @@ class TestPrompts:
         assert "gaming" in prompt
         assert "color_strategy" in prompt
 
+    # ── New creative prompt templates ──────────────────────────────────────
+
+    def test_title_generation_prompt(self):
+        from app.ai.prompts.title_generation import title_generation_prompt
+        prompt = title_generation_prompt(
+            niche="technology",
+            topic="ai tools",
+            keywords=["ai", "chatgpt"],
+            trend_momentum=75.0,
+        )
+        assert "ai tools" in prompt
+        assert "curiosity_gap_headline" in prompt
+        assert "keyword_optimized_title" in prompt
+
+    def test_description_generation_prompt(self):
+        from app.ai.prompts.description_generation import description_generation_prompt
+        prompt = description_generation_prompt(
+            niche="technology",
+            topic="ai tools",
+            title="AI Tools Guide",
+            keywords=["ai", "tools"],
+        )
+        assert "AI Tools Guide" in prompt
+        assert "intro_paragraph" in prompt
+        assert "chapters" in prompt
+
+    def test_thumbnail_concept_prompt(self):
+        from app.ai.prompts.thumbnail_generation import thumbnail_concept_prompt
+        prompt = thumbnail_concept_prompt(
+            niche="technology",
+            title="The Shocking Truth",
+        )
+        assert "The Shocking Truth" in prompt
+        assert "emotion_trigger" in prompt
+        assert "color_palette" in prompt
+
+    def test_video_ideas_prompt(self):
+        from app.ai.prompts.video_strategy_generation import video_ideas_prompt
+        prompt = video_ideas_prompt(
+            niche="fitness",
+            keywords=["workout", "gym"],
+            count=10,
+        )
+        assert "fitness" in prompt
+        assert "video_ideas" in prompt
+
+    def test_channel_concept_prompt(self):
+        from app.ai.prompts.video_strategy_generation import channel_concept_prompt
+        prompt = channel_concept_prompt(
+            niche="cooking",
+            keywords=["recipes", "meals"],
+        )
+        assert "cooking" in prompt
+        assert "channel_names" in prompt
+        assert "audience_persona" in prompt
+
+    def test_script_structure_prompt(self):
+        from app.ai.prompts.script_generation import script_structure_prompt
+        prompt = script_structure_prompt(
+            niche="programming",
+            topic="python",
+            title="Master Python",
+        )
+        assert "Master Python" in prompt
+        assert "hook" in prompt
+        assert "retention_pattern_interrupt" in prompt
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  Service integration tests (mocked)
@@ -301,6 +368,105 @@ class TestAIService:
             from app.ai.service import analyze_niches
             result = await analyze_niches([{"niche": "test"}])
         assert "error" in result
+
+    # ── New creative service function tests ────────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_generate_titles(self, mock_client):
+        mock_client.agenerate_json = AsyncMock(return_value={
+            "curiosity_gap_headline": "Title A",
+            "keyword_optimized_title": "Title B",
+            "alternative_titles": ["Title C"],
+        })
+        with patch("app.ai.service.get_ai_client", return_value=mock_client):
+            from app.ai.service import generate_titles
+            result = await generate_titles("ai tools", "technology", ["ai"])
+        assert result is not None
+        assert "curiosity_gap_headline" in result
+
+    @pytest.mark.asyncio
+    async def test_generate_titles_returns_none_when_unavailable(self, mock_client):
+        mock_client.available = False
+        with patch("app.ai.service.get_ai_client", return_value=mock_client):
+            from app.ai.service import generate_titles
+            result = await generate_titles("ai tools", "technology", ["ai"])
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_generate_titles_returns_none_on_invalid_response(self, mock_client):
+        mock_client.agenerate_json = AsyncMock(return_value={"bad": "response"})
+        with patch("app.ai.service.get_ai_client", return_value=mock_client):
+            from app.ai.service import generate_titles
+            result = await generate_titles("ai tools", "technology", ["ai"])
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_generate_description(self, mock_client):
+        mock_client.agenerate_json = AsyncMock(return_value={
+            "intro_paragraph": "Intro text",
+            "video_summary": "Summary",
+            "chapter_markers": ["0:00 Intro"],
+        })
+        with patch("app.ai.service.get_ai_client", return_value=mock_client):
+            from app.ai.service import generate_description
+            result = await generate_description("Title", "topic", "niche", ["kw"])
+        assert result is not None
+        assert "intro_paragraph" in result
+
+    @pytest.mark.asyncio
+    async def test_generate_thumbnail_concepts(self, mock_client):
+        mock_client.agenerate_json = AsyncMock(return_value={
+            "emotion_trigger": "curiosity",
+            "visual_focal_point": "Mystery element",
+            "contrast_strategy": "High contrast",
+        })
+        with patch("app.ai.service.get_ai_client", return_value=mock_client):
+            from app.ai.service import generate_thumbnail_concepts
+            result = await generate_thumbnail_concepts("Title", "topic", "niche")
+        assert result is not None
+        assert "emotion_trigger" in result
+
+    @pytest.mark.asyncio
+    async def test_generate_video_ideas_ai(self, mock_client):
+        mock_client.agenerate_json = AsyncMock(return_value={
+            "video_ideas": [
+                {"title": "Idea 1", "topic": "ai", "angle": "tutorial"},
+            ],
+        })
+        with patch("app.ai.service.get_ai_client", return_value=mock_client):
+            from app.ai.service import generate_video_ideas_ai
+            result = await generate_video_ideas_ai("technology", ["ai"])
+        assert result is not None
+        assert "video_ideas" in result
+
+    @pytest.mark.asyncio
+    async def test_generate_channel_concept_ai(self, mock_client):
+        mock_client.agenerate_json = AsyncMock(return_value={
+            "channel_names": ["TechLab", "AI Hub"],
+            "audience_persona": {"age_range": "18-35"},
+            "positioning": "The go-to channel",
+        })
+        with patch("app.ai.service.get_ai_client", return_value=mock_client):
+            from app.ai.service import generate_channel_concept_ai
+            result = await generate_channel_concept_ai("technology", ["ai"])
+        assert result is not None
+        assert "channel_names" in result
+
+    @pytest.mark.asyncio
+    async def test_generate_script_structure(self, mock_client):
+        mock_client.agenerate_json = AsyncMock(return_value={
+            "hook": "Bold opening",
+            "retention_pattern_interrupt": "Pattern interrupt",
+            "story_progression": "Journey arc",
+            "mid_video_curiosity_loop": "Tease",
+            "final_payoff": "Payoff",
+            "cta_placement": "Subscribe",
+        })
+        with patch("app.ai.service.get_ai_client", return_value=mock_client):
+            from app.ai.service import generate_script_structure
+            result = await generate_script_structure("Title", "topic", "niche")
+        assert result is not None
+        assert "hook" in result
 
 
 # ══════════════════════════════════════════════════════════════════════════════

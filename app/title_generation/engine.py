@@ -10,7 +10,7 @@ from app.core.models import VideoIdea
 logger = get_logger(__name__)
 
 
-# ── Title Formula Templates ────────────────────────────────────────────────────
+# ── Title Formula Templates (fallback) ─────────────────────────────────────────
 
 CURIOSITY_GAP_FORMULAS: list[str] = [
     "The {topic} Secret That {audience} Don't Want You to Know",
@@ -48,13 +48,75 @@ ALTERNATIVE_FORMULAS: list[str] = [
 
 
 class TitleGenerationEngine:
-    """Generate CTR-optimized video titles using proven formulas."""
+    """Generate CTR-optimized video titles using AI with template fallback."""
 
     def __init__(self) -> None:
         self.year = "2026"
 
     def generate_titles(self, video: VideoIdea) -> dict[str, Any]:
-        """Generate all title variations for a video idea."""
+        """Generate all title variations for a video idea.
+
+        Tries AI generation first; falls back to template formulas on failure.
+        """
+        ai_result = self._try_ai_titles(video)
+        if ai_result:
+            return ai_result
+
+        return self._fallback_titles(video)
+
+    # ── AI-first path ──────────────────────────────────────────────────────
+
+    def _try_ai_titles(self, video: VideoIdea) -> dict[str, Any] | None:
+        """Attempt AI-powered title generation."""
+        try:
+            from app.ai.client import get_ai_client
+            from app.ai.prompts.title_generation import title_generation_prompt
+
+            client = get_ai_client()
+            if not client.available:
+                return None
+
+            prompt = title_generation_prompt(
+                niche=video.topic,
+                topic=video.topic,
+                keywords=video.target_keywords or [],
+                angle=video.angle or "",
+                trend_momentum=getattr(video, "trend_momentum", 0.0),
+                competition_score=getattr(video, "competition_score", 0.0),
+                ctr_potential=getattr(video, "ctr_potential", 0.0),
+                virality_score=getattr(video, "virality_score", 0.0),
+            )
+            result = client.generate_json(prompt, use_pro=False)
+
+            if result and isinstance(result, dict):
+                curiosity = result.get("curiosity_gap_headline", "")
+                keyword_opt = result.get("keyword_optimized_title", "")
+                alternatives = result.get("alternative_titles", [])
+                formulas = result.get("title_formulas", [])
+
+                if curiosity and keyword_opt:
+                    titles = {
+                        "curiosity_gap_headline": curiosity,
+                        "keyword_optimized_title": keyword_opt,
+                        "alternative_titles": alternatives[:5],
+                        "title_formulas": formulas if formulas else [
+                            f"Curiosity Gap: {curiosity}",
+                            f"SEO Optimized: {keyword_opt}",
+                        ] + [f"Alternative: {t}" for t in alternatives[:3]],
+                        "_ai_generated": True,
+                    }
+                    logger.info("ai_title_generation_success", topic=video.topic)
+                    return titles
+
+        except Exception as exc:
+            logger.warning("ai_title_generation_failed", error=str(exc))
+
+        return None
+
+    # ── Template fallback ──────────────────────────────────────────────────
+
+    def _fallback_titles(self, video: VideoIdea) -> dict[str, Any]:
+        """Generate titles using static template formulas (fallback)."""
         topic = video.topic.title()
 
         curiosity_title = self._generate_curiosity_title(topic)

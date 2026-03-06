@@ -1,5 +1,7 @@
-"""Video Blueprint Assembler - combines all generators into complete blueprints."""
+"""Video Blueprint Assembler — AI-first script structure with template fallback."""
 from __future__ import annotations
+
+from typing import Any
 
 from app.core.logging import get_logger
 from app.core.models import (
@@ -36,13 +38,13 @@ class BlueprintAssembler:
         """Assemble a complete video blueprint."""
         niche_name = niche.niche
 
-        # Title generation
+        # Title generation (AI-first inside engine)
         titles = self.title_gen.generate_titles(video)
 
-        # Thumbnail
+        # Thumbnail (AI-first inside engine)
         thumbnail = self.thumbnail_gen.generate(video, niche_name)
 
-        # Script structure
+        # Script structure (AI-first here)
         script = self._generate_script_structure(video, niche_name)
 
         # Production plan
@@ -51,10 +53,10 @@ class BlueprintAssembler:
         # Low-cost production method
         low_cost = self._generate_low_cost_plan(niche_name)
 
-        # SEO description
+        # SEO description (AI-first inside engine)
         description = self.description_gen.generate(video, niche_name)
 
-        # Monetization
+        # Monetization (AI-first inside engine)
         monetization = self.monetization_gen.generate_strategy(niche)
 
         blueprint = VideoBlueprint(
@@ -86,10 +88,66 @@ class BlueprintAssembler:
         )
         return blueprints
 
+    # ── Script structure (AI-first) ────────────────────────────────────────
+
     def _generate_script_structure(
         self, video: VideoIdea, niche: str
     ) -> ScriptStructure:
-        """Generate a video script structure."""
+        """Generate a video script structure.
+
+        Tries AI generation first; falls back to static templates on failure.
+        """
+        ai_result = self._try_ai_script_structure(video, niche)
+        if ai_result:
+            return ai_result
+
+        return self._fallback_script_structure(video, niche)
+
+    def _try_ai_script_structure(
+        self, video: VideoIdea, niche: str
+    ) -> ScriptStructure | None:
+        """Attempt AI-powered script structure generation."""
+        try:
+            from app.ai.client import get_ai_client
+            from app.ai.prompts.script_generation import script_structure_prompt
+
+            client = get_ai_client()
+            if not client.available:
+                return None
+
+            prompt = script_structure_prompt(
+                niche=niche,
+                topic=video.topic,
+                angle=video.angle or "",
+                title=video.title,
+            )
+            result = client.generate_json(prompt, use_pro=False)
+
+            if result and isinstance(result, dict) and "hook" in result:
+                script = ScriptStructure(
+                    hook=result["hook"],
+                    retention_pattern_interrupt=result.get(
+                        "retention_pattern_interrupt", ""
+                    ),
+                    story_progression=result.get("story_progression", ""),
+                    mid_video_curiosity_loop=result.get(
+                        "mid_video_curiosity_loop", ""
+                    ),
+                    final_payoff=result.get("final_payoff", ""),
+                    cta_placement=result.get("cta_placement", ""),
+                )
+                logger.info("ai_script_structure_success", title=video.title)
+                return script
+
+        except Exception as exc:
+            logger.warning("ai_script_structure_failed", error=str(exc))
+
+        return None
+
+    def _fallback_script_structure(
+        self, video: VideoIdea, niche: str
+    ) -> ScriptStructure:
+        """Generate script structure using static templates (fallback)."""
         topic = video.topic
 
         return ScriptStructure(

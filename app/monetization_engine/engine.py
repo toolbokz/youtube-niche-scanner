@@ -1,5 +1,7 @@
-"""Monetization Strategy Engine."""
+"""Monetization Strategy Engine — AI-enriched creative copy with template fallback."""
 from __future__ import annotations
+
+from typing import Any
 
 from app.core.logging import get_logger
 from app.core.models import MonetizationStrategy, NicheScore
@@ -7,7 +9,7 @@ from app.core.models import MonetizationStrategy, NicheScore
 logger = get_logger(__name__)
 
 
-# ── Niche-to-Affiliate Mapping ─────────────────────────────────────────────────
+# ── Niche-to-Affiliate Mapping (deterministic lookup — not AI-ified) ───────────
 
 AFFILIATE_PRODUCTS: dict[str, list[str]] = {
     "technology": ["VPN services", "Cloud hosting", "Software tools", "Tech gadgets"],
@@ -40,17 +42,35 @@ SPONSORSHIP_CATEGORIES: dict[str, list[str]] = {
 
 
 class MonetizationEngine:
-    """Generate monetization strategies for YouTube niches."""
+    """Generate monetization strategies using AI with template fallback."""
 
     def generate_strategy(self, niche: NicheScore) -> MonetizationStrategy:
         """Generate a comprehensive monetization strategy."""
         niche_text = niche.niche.lower()
 
+        # Deterministic lookups (keep as-is)
         affiliates = self._find_affiliate_products(niche_text)
         sponsorships = self._find_sponsorship_categories(niche_text)
-        digital_products = self._suggest_digital_products(niche_text)
-        lead_magnets = self._suggest_lead_magnets(niche_text)
-        expansion = self._suggest_expansion(niche)
+
+        # AI-first for creative copy fields
+        ai_result = self._try_ai_monetization(niche)
+
+        if ai_result:
+            digital_products = ai_result.get("digital_products", [])
+            lead_magnets = ai_result.get("lead_magnets", [])
+            expansion = ai_result.get("expansion_strategy", "")
+        else:
+            digital_products = []
+            lead_magnets = []
+            expansion = ""
+
+        # Fallback for any empty creative fields
+        if not digital_products:
+            digital_products = self._suggest_digital_products(niche_text)
+        if not lead_magnets:
+            lead_magnets = self._suggest_lead_magnets(niche_text)
+        if not expansion:
+            expansion = self._suggest_expansion(niche)
 
         strategy = MonetizationStrategy(
             affiliate_products=affiliates,
@@ -62,6 +82,52 @@ class MonetizationEngine:
 
         logger.info("monetization_strategy_generated", niche=niche.niche)
         return strategy
+
+    # ── AI-first path ──────────────────────────────────────────────────────
+
+    def _try_ai_monetization(self, niche: NicheScore) -> dict[str, Any] | None:
+        """Attempt AI-powered monetization copy generation."""
+        try:
+            from app.ai.client import get_ai_client
+
+            client = get_ai_client()
+            if not client.available:
+                return None
+
+            prompt = (
+                f"You are a YouTube monetization strategist.\n\n"
+                f"Niche: {niche.niche}\n"
+                f"Keywords: {', '.join(niche.keywords[:8])}\n"
+                f"Trend Momentum: {niche.trend_momentum}/100\n"
+                f"Competition: {niche.competition_score}/100\n"
+                f"Overall Score: {niche.overall_score}/100\n\n"
+                f"Generate a monetization plan with:\n"
+                f"1. digital_products — 5 specific digital product ideas for this niche "
+                f"(e.g. courses, templates, ebooks, toolkits, communities)\n"
+                f"2. lead_magnets — 4 specific lead magnet ideas to build an email list\n"
+                f"3. expansion_strategy — a phased growth strategy (Phase 1-4) "
+                f"tailored to this niche, covering months 1-3, 3-6, 6-12, and year 2+\n\n"
+                f"Return valid JSON with keys: digital_products (list[str]), "
+                f"lead_magnets (list[str]), expansion_strategy (str)."
+            )
+            result = client.generate_json(prompt, use_pro=False)
+
+            if result and isinstance(result, dict):
+                has_content = (
+                    result.get("digital_products")
+                    or result.get("lead_magnets")
+                    or result.get("expansion_strategy")
+                )
+                if has_content:
+                    logger.info("ai_monetization_success", niche=niche.niche)
+                    return result
+
+        except Exception as exc:
+            logger.warning("ai_monetization_failed", error=str(exc))
+
+        return None
+
+    # ── Deterministic lookups ──────────────────────────────────────────────
 
     def _find_affiliate_products(self, niche_text: str) -> list[str]:
         """Find relevant affiliate products for the niche."""
@@ -92,8 +158,10 @@ class MonetizationEngine:
 
         return list(dict.fromkeys(sponsors))[:6]
 
+    # ── Template fallback ──────────────────────────────────────────────────
+
     def _suggest_digital_products(self, niche_text: str) -> list[str]:
-        """Suggest digital products to create."""
+        """Suggest digital products to create (fallback)."""
         return [
             f"Comprehensive {niche_text.title()} eBook/Guide",
             f"{niche_text.title()} Online Course",
@@ -103,7 +171,7 @@ class MonetizationEngine:
         ]
 
     def _suggest_lead_magnets(self, niche_text: str) -> list[str]:
-        """Suggest lead magnets for email list building."""
+        """Suggest lead magnets for email list building (fallback)."""
         return [
             f"Free {niche_text.title()} Starter Guide (PDF)",
             f"{niche_text.title()} Checklist",
@@ -112,7 +180,7 @@ class MonetizationEngine:
         ]
 
     def _suggest_expansion(self, niche: NicheScore) -> str:
-        """Suggest channel expansion strategy."""
+        """Suggest channel expansion strategy (fallback)."""
         return (
             f"Phase 1 (Months 1-3): Build authority in {niche.niche} with consistent uploads. "
             f"Focus on SEO-optimized content to capture search traffic.\n"

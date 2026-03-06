@@ -1,6 +1,8 @@
 """Tests for strategy generators."""
 from __future__ import annotations
 
+from unittest.mock import MagicMock, patch
+
 from app.video_strategy.engine import VideoStrategyEngine
 from app.thumbnail_strategy.engine import ThumbnailStrategyGenerator
 from app.title_generation.engine import TitleGenerationEngine
@@ -143,3 +145,184 @@ def test_blueprint_assembly() -> None:
     assert blueprint.low_cost_production.stock_footage_libraries
     assert blueprint.seo_description.intro_paragraph
     assert blueprint.monetization.affiliate_products
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  AI-first + Fallback tests
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def _mock_ai_available(generate_json_return):
+    """Create a mock client that returns the given value from generate_json."""
+    client = MagicMock()
+    client.available = True
+    client.generate_json.return_value = generate_json_return
+    return client
+
+
+def _mock_ai_unavailable():
+    """Create a mock client that is not available."""
+    client = MagicMock()
+    client.available = False
+    return client
+
+
+# ── Title AI-first tests ───────────────────────────────────────────────────
+
+def test_title_generation_uses_ai_when_available() -> None:
+    gen = TitleGenerationEngine()
+    video = VideoIdea(
+        title="AI Tools Guide",
+        topic="ai tools",
+        target_keywords=["ai", "tools"],
+    )
+    mock_client = _mock_ai_available({
+        "curiosity_gap_headline": "AI Secret Nobody Tells You",
+        "keyword_optimized_title": "AI Tools Complete Guide 2026",
+        "alternative_titles": ["Why AI Will Change Everything"],
+    })
+    with patch("app.ai.client.get_ai_client", return_value=mock_client):
+        titles = gen.generate_titles(video)
+    assert titles.get("_ai_generated") is True
+    assert titles["curiosity_gap_headline"] == "AI Secret Nobody Tells You"
+
+
+def test_title_generation_fallback_on_ai_failure() -> None:
+    gen = TitleGenerationEngine()
+    video = VideoIdea(
+        title="AI Tools Guide",
+        topic="ai tools",
+        target_keywords=["ai", "tools"],
+    )
+    with patch("app.ai.client.get_ai_client", return_value=_mock_ai_unavailable()):
+        titles = gen.generate_titles(video)
+    assert "_ai_generated" not in titles
+    assert titles["curiosity_gap_headline"]  # still has a title from templates
+
+
+# ── Thumbnail AI-first tests ──────────────────────────────────────────────
+
+def test_thumbnail_uses_ai_when_available() -> None:
+    gen = ThumbnailStrategyGenerator()
+    video = VideoIdea(title="Shocking Truth", topic="ai", angle="secrets")
+    mock_client = _mock_ai_available({
+        "emotion_trigger": "shock",
+        "contrast_strategy": "Bold red on black",
+        "visual_focal_point": "Dramatic reveal",
+        "text_overlay": "SHOCKING",
+        "color_palette": ["#ff0000", "#000000"],
+        "layout_concept": "Full bleed dramatic layout",
+    })
+    with patch("app.ai.client.get_ai_client", return_value=mock_client):
+        concept = gen.generate(video, "technology")
+    assert concept.emotion_trigger == "shock"
+    assert concept.layout_concept == "Full bleed dramatic layout"
+
+
+def test_thumbnail_fallback_on_ai_failure() -> None:
+    gen = ThumbnailStrategyGenerator()
+    video = VideoIdea(title="Shocking Truth", topic="ai", angle="secrets")
+    with patch("app.ai.client.get_ai_client", return_value=_mock_ai_unavailable()):
+        concept = gen.generate(video, "technology")
+    assert concept.emotion_trigger  # still has an emotion from keyword detection
+    assert concept.color_palette
+
+
+# ── Description AI-first tests ────────────────────────────────────────────
+
+def test_description_uses_ai_when_available() -> None:
+    gen = DescriptionGenerationEngine()
+    video = VideoIdea(
+        title="Python Tutorial",
+        topic="python",
+        target_keywords=["python", "coding"],
+    )
+    mock_client = _mock_ai_available({
+        "intro_paragraph": "AI-generated intro about Python",
+        "keyword_block": ["python", "coding", "tutorial"],
+        "chapters": ["0:00 Introduction", "2:00 Setup"],
+        "cta_structure": "Subscribe for more!",
+        "affiliate_positioning": "Resources used in this tutorial",
+    })
+    with patch("app.ai.client.get_ai_client", return_value=mock_client):
+        desc = gen.generate(video, "programming")
+    assert desc.intro_paragraph == "AI-generated intro about Python"
+
+
+def test_description_fallback_on_ai_failure() -> None:
+    gen = DescriptionGenerationEngine()
+    video = VideoIdea(
+        title="Python Tutorial",
+        topic="python",
+        target_keywords=["python", "coding"],
+    )
+    with patch("app.ai.client.get_ai_client", return_value=_mock_ai_unavailable()):
+        desc = gen.generate(video, "programming")
+    assert "dive deep" in desc.intro_paragraph  # fallback template text
+
+
+# ── Blueprint script structure AI-first tests ─────────────────────────────
+
+def test_blueprint_script_uses_ai_when_available() -> None:
+    assembler = BlueprintAssembler()
+    video = VideoIdea(title="Test", topic="ai", angle="tutorial", target_keywords=["ai"])
+    niche = NicheScore(niche="ai", overall_score=75, rank=1, keywords=["ai"])
+
+    mock_client = MagicMock()
+    mock_client.available = True
+    mock_client.generate_json.return_value = {
+        "hook": "AI-generated hook",
+        "retention_pattern_interrupt": "Pattern interrupt",
+        "story_progression": "Journey arc",
+        "mid_video_curiosity_loop": "Tease",
+        "final_payoff": "Payoff",
+        "cta_placement": "Subscribe",
+    }
+    # Patch at client level for script, let other engines use fallback
+    with patch("app.ai.client.get_ai_client", return_value=mock_client):
+        script = assembler._generate_script_structure(video, "ai")
+    assert script.hook == "AI-generated hook"
+
+
+def test_blueprint_script_fallback_on_ai_failure() -> None:
+    assembler = BlueprintAssembler()
+    video = VideoIdea(title="Test", topic="ai", angle="tutorial", target_keywords=["ai"])
+
+    with patch("app.ai.client.get_ai_client", return_value=_mock_ai_unavailable()):
+        script = assembler._generate_script_structure(video, "ai")
+    assert "bold, surprising statement" in script.hook  # fallback template
+
+
+# ── Monetization AI-first tests ───────────────────────────────────────────
+
+def test_monetization_uses_ai_when_available() -> None:
+    engine = MonetizationEngine()
+    niche = NicheScore(
+        niche="technology",
+        overall_score=75,
+        rank=1,
+        keywords=["tech"],
+    )
+    mock_client = _mock_ai_available({
+        "digital_products": ["AI Course", "Tech Template Pack"],
+        "lead_magnets": ["Free AI Starter Guide"],
+        "expansion_strategy": "AI-powered Phase 1-4 plan",
+    })
+    with patch("app.ai.client.get_ai_client", return_value=mock_client):
+        strategy = engine.generate_strategy(niche)
+    assert "AI Course" in strategy.digital_products
+    assert "AI-powered Phase 1-4 plan" in strategy.expansion_strategy
+
+
+def test_monetization_fallback_on_ai_failure() -> None:
+    engine = MonetizationEngine()
+    niche = NicheScore(
+        niche="technology",
+        overall_score=75,
+        rank=1,
+        keywords=["tech"],
+    )
+    with patch("app.ai.client.get_ai_client", return_value=_mock_ai_unavailable()):
+        strategy = engine.generate_strategy(niche)
+    assert len(strategy.digital_products) > 0  # fallback templates
+    assert "Phase 1" in strategy.expansion_strategy  # fallback phased plan
